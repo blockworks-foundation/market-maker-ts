@@ -1,6 +1,6 @@
 {
   "group": "mainnet.1",
-  "mangoAccountName": "test",
+  "mangoAccountName": "Market Makooor",
   "mangoAccountPubkey": "optional pubkey string if your mango account doesn't have name",
   "interval": 5000,
   "batch": 2,
@@ -84,7 +84,6 @@
         "spammerCharge": 2
       }
     },
-
     "ADA": {
       "perp": {
         "charge": 0.0010,
