@@ -1,5 +1,4 @@
 # Mango Markets Market Maker
-## UNDER CONSTRUCTION - DO NOT USE
 
 ## Setup
 To run the market maker you will need:
@@ -7,8 +6,59 @@ To run the market maker you will need:
 * A Mango Account with some collateral deposited and a name (tip: use the UI)
 * Your wallet keypair saved as a JSON file
 * `node` and `yarn`
-* A clone of this repository
-* Dependencies installed with `yarn install`
+
+```shell
+mkdir blockworks-foundation
+cd blockworks-foundation
+git clone https://github.com/blockworks-foundation/market-maker-ts.git
+cd market-maker-ts
+yarn install
+
+## Open .env file and set env vars like this example ##
+export KEYPAIR=~/.config/solana/id.json
+export ENDPOINT_URL="https://mango.rpcpool.com/946ef7337da3f5b8d3e4a34e7f88"
+export PARAMS=default.json
+
+## Set mangoAccountName in params file to reflect the name of your MangoAccount
+```
+
+## Run via terminal
+```shell
+. run.sh
+```
+
+## Run via systemd
+If you're running the market maker on a server, you might want to run it via systemd to have auto restarts
+```shell
+chmod 755 run.sh
+cd /etc/systemd/system
+sudo nano mm.service
+
+## Set the systemd service file like this and replace the *** lines with your own
+***ExecStart=/home/dd/blockworks-foundation/market-maker-ts/run.sh
+***WorkingDirectory=/home/dd/blockworks-foundation/market-maker-ts/
+Restart=always
+RuntimeMaxSec=1800
+RestartSec=5s
+LimitNOFILE=4096
+IgnoreSIGPIPE=false
+KillMode=control-group
+***User=dd
+
+sudo systemctl daemon-reload
+sudo systemctl start mm.service
+```
+
+You can watch the log output with:
+```shell
+journalctl -f -u mm.service
+```
+
+And stop the mm:
+```shell
+sudo systemctl stop mm.service
+```
+
 
 ## Environment Variables
 | Variable | Default | Description |
@@ -34,4 +84,3 @@ To run the market maker you will need:
 | `requoteThresh` | `0` | How much new bid/ask price must change to requote; e.g. 0.0002 implies 2bps |
 
 
-## Setup systemd

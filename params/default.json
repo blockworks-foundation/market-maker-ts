@@ -8,7 +8,7 @@
     "MNGO": {
       "perp": {
         "charge": 0.0020,
-        "sizePerc": 0.02,
+        "sizePerc": 0.01,
         "leanCoeff": 0.0010,
         "bias": 0.0,
         "requoteThresh": 0.0002,
@@ -20,7 +20,7 @@
     "BTC": {
       "perp": {
         "charge": 0.0005,
-        "sizePerc": 0.1,
+        "sizePerc": 0.05,
         "leanCoeff": 0.00025,
         "bias": 0.0,
         "requoteThresh": 0.0002,
@@ -31,7 +31,7 @@
     "ETH": {
       "perp": {
         "charge": 0.00075,
-        "sizePerc": 0.1,
+        "sizePerc": 0.05,
         "leanCoeff": 0.000375,
         "bias": 0.0,
         "requoteThresh": 0.0002,
@@ -43,7 +43,7 @@
     "SOL": {
       "perp": {
         "charge": 0.0010,
-        "sizePerc": 0.1,
+        "sizePerc": 0.05,
         "leanCoeff": 0.0005,
         "bias": 0.0,
         "requoteThresh": 0.0002,
@@ -65,7 +65,7 @@
     "RAY": {
       "perp": {
         "charge": 0.0015,
-        "sizePerc": 0.03,
+        "sizePerc": 0.015,
         "leanCoeff": 0.00075,
         "bias": 0.0,
         "requoteThresh": 0.0002,
@@ -76,7 +76,7 @@
     "FTT": {
       "perp": {
         "charge": 0.0010,
-        "sizePerc": 0.04,
+        "sizePerc": 0.02,
         "leanCoeff": 0.0005,
         "bias": 0.0,
         "requoteThresh": 0.0002,
@@ -87,7 +87,7 @@
     "ADA": {
       "perp": {
         "charge": 0.0010,
-        "sizePerc": 0.06,
+        "sizePerc": 0.03,
         "leanCoeff": 0.0005,
         "bias": 0.0,
         "requoteThresh": 0.0002,
