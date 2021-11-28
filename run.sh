@@ -1,2 +1,3 @@
-source .env
+#!/bin/bash
+. .env
 yarn mm
