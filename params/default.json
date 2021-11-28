@@ -30,9 +30,9 @@
     },
     "ETH": {
       "perp": {
-        "charge": 0.0020,
-        "sizePerc": 0.02,
-        "leanCoeff": 0.0010,
+        "charge": 0.00075,
+        "sizePerc": 0.1,
+        "leanCoeff": 0.000375,
         "bias": 0.0,
         "requoteThresh": 0.0002,
         "takeSpammers": true,
@@ -64,9 +64,9 @@
     },
     "RAY": {
       "perp": {
-        "charge": 0.0020,
-        "sizePerc": 0.02,
-        "leanCoeff": 0.0010,
+        "charge": 0.0015,
+        "sizePerc": 0.03,
+        "leanCoeff": 0.00075,
         "bias": 0.0,
         "requoteThresh": 0.0002,
         "takeSpammers": true,
@@ -75,9 +75,9 @@
     },
     "FTT": {
       "perp": {
-        "charge": 0.0020,
-        "sizePerc": 0.02,
-        "leanCoeff": 0.0010,
+        "charge": 0.0010,
+        "sizePerc": 0.04,
+        "leanCoeff": 0.0005,
         "bias": 0.0,
         "requoteThresh": 0.0002,
         "takeSpammers": true,
@@ -88,7 +88,7 @@
     "ADA": {
       "perp": {
         "charge": 0.0010,
-        "sizePerc": 0.1,
+        "sizePerc": 0.06,
         "leanCoeff": 0.0005,
         "bias": 0.0,
         "requoteThresh": 0.0002,

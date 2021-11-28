@@ -15,11 +15,13 @@ To run the market maker you will need:
 | -------- | ------- | ----------- |
 | `ENDPOINT_URL` | `https://mango.rpcpool.com` | Your RPC node endpoint |
 | `KEYPAIR` | `${HOME}/.config/solana/id.json` | The location of your wallet keypair |
-| `PARAMS` | `params/default.json` | path to params file |
+| `PARAMS` | `default.json` | params file |
 
 
 ## Market Maker Params
 ### See params/default.json for an example
+| Variable | Default | Description |
+| -------- | ------- | ----------- |
 | `group` | `mainnet.1` | Name of the group in ids.json |
 | `interval` | `10000` | Milliseconds to wait before updating quotes |
 | `mangoAccountName` | N/A | The MangoAccount name you input when initializing the MangoAccount via UI |
@@ -29,6 +31,7 @@ To run the market maker you will need:
 | `charge` | `0.0010` | Half the quote width |
 | `lean_coeff` | `0.0005` | How much to move the quotes per unit size of inventory |
 | `bias` | `0` | Fixed amount to bias. Negative values bias downward. e.g. -0.0005 biases down 5bps |
+| `requoteThresh` | `0` | How much new bid/ask price must change to requote; e.g. 0.0002 implies 2bps |
 
 
 ## Setup systemd

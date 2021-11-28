@@ -35,9 +35,10 @@ import { OpenOrders } from '@project-serum/serum';
 import path from 'path';
 import { loadMangoAccountWithName, loadMangoAccountWithPubkey } from './utils';
 
+const paramsFileName = process.env.PARAMS || 'default.json';
 const params = JSON.parse(
   fs.readFileSync(
-    process.env.PARAMS || path.resolve(__dirname, '../params/default.json'),
+    path.resolve(__dirname, `../params/${paramsFileName}`),
     'utf-8',
   ),
 );
