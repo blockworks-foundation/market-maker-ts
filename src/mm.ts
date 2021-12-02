@@ -1,7 +1,7 @@
 import {
   Account,
   Commitment,
-  Connection,
+  Connection, PublicKey,
   Transaction,
   TransactionInstruction,
 } from '@solana/web3.js';
@@ -180,7 +180,7 @@ async function fullMarketMaker() {
       client,
       mangoGroup,
       payer,
-      params.mangoAccountPubkey,
+      new PublicKey(params.mangoAccountPubkey),
     );
   } else {
     throw new Error(
