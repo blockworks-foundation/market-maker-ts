@@ -603,7 +603,7 @@ async function onExit(
       new BN(20),
     );
     tx.add(cancelAllInstr);
-    if (tx.instructions === params.batch) {
+    if (tx.instructions.length === params.batch) {
       txProms.push(client.sendTransaction(tx, payer, []));
       tx = new Transaction();
     }
