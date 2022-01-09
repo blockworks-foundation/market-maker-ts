@@ -94,6 +94,104 @@ type MarketContext = {
   sequenceAccount: PublicKey;
   sequenceAccountBump: number;
 };
+
+/**
+ * Periodically fetch the account and market state
+ */
+async function listenAccountAndMarketState(
+  connection: Connection,
+  group: MangoGroup,
+  state: {
+    cache: MangoCache;
+    mangoAccount: MangoAccount;
+    marketContexts: MarketContext[];
+  },
+) {
+  while (control.isRunning) {
+    try {
+      const inBasketOpenOrders = state.mangoAccount
+        .getOpenOrdersKeysInBasket()
+        .filter((pk) => !pk.equals(zeroKey));
+
+      const allAccounts = [
+        group.mangoCache,
+        state.mangoAccount.publicKey,
+        ...inBasketOpenOrders,
+        ...state.marketContexts.map(
+          (marketContext) => marketContext.market.bids,
+        ),
+        ...state.marketContexts.map(
+          (marketContext) => marketContext.market.asks,
+        ),
+      ];
+
+      const accountInfos = await getMultipleAccounts(connection, allAccounts);
+
+      const cache = new MangoCache(
+        accountInfos[0].publicKey,
+        MangoCacheLayout.decode(accountInfos[0].accountInfo.data),
+      );
+
+      const mangoAccount = new MangoAccount(
+        accountInfos[1].publicKey,
+        MangoAccountLayout.decode(accountInfos[1].accountInfo.data),
+      );
+      const openOrdersAis = accountInfos.slice(
+        2,
+        2 + inBasketOpenOrders.length,
+      );
+      for (let i = 0; i < openOrdersAis.length; i++) {
+        const ai = openOrdersAis[i];
+        const marketIndex = mangoAccount.spotOpenOrders.findIndex((soo) =>
+          soo.equals(ai.publicKey),
+        );
+        mangoAccount.spotOpenOrdersAccounts[marketIndex] =
+          OpenOrders.fromAccountInfo(
+            ai.publicKey,
+            ai.accountInfo,
+            group.dexProgramId,
+          );
+      }
+
+      accountInfos
+        .slice(
+          2 + inBasketOpenOrders.length,
+          2 + inBasketOpenOrders.length + state.marketContexts.length,
+        )
+        .forEach((ai, i) => {
+          state.marketContexts[i].bids = new BookSide(
+            ai.publicKey,
+            state.marketContexts[i].market,
+            BookSideLayout.decode(ai.accountInfo.data),
+          );
+        });
+
+      accountInfos
+        .slice(
+          2 + inBasketOpenOrders.length + state.marketContexts.length,
+          2 + inBasketOpenOrders.length + 2 * state.marketContexts.length,
+        )
+        .forEach((ai, i) => {
+          state.marketContexts[i].asks = new BookSide(
+            ai.publicKey,
+            state.marketContexts[i].market,
+            BookSideLayout.decode(ai.accountInfo.data),
+          );
+        });
+
+      state.mangoAccount = mangoAccount;
+      state.cache = cache;
+    } catch (e) {
+      console.error(
+        `${new Date().getUTCDate().toString()} failed when loading state`,
+        e,
+      );
+    } finally {
+      await sleep(1000);
+    }
+  }
+}
+
 /**
  * Load MangoCache, MangoAccount and Bids and Asks for all PerpMarkets using only
  * one RPC call.
@@ -280,6 +378,13 @@ async function fullMarketMaker() {
   seqAccTx.add(...seqAccInstrs);
   const seqAccTxid = await client.sendTransaction(seqAccTx, payer, []);
 
+  const state = await loadAccountAndMarketState(
+    connection,
+    mangoGroup,
+    mangoAccount,
+    marketContexts,
+  );
+  listenAccountAndMarketState(connection, mangoGroup, state);
   listenFtxBooks(marketContexts);
 
   process.on('SIGINT', function () {
@@ -290,12 +395,6 @@ async function fullMarketMaker() {
 
   while (control.isRunning) {
     try {
-      const state = await loadAccountAndMarketState(
-        connection,
-        mangoGroup,
-        mangoAccount,
-        marketContexts,
-      );
       mangoAccount = state.mangoAccount;
 
       let j = 0;
@@ -425,11 +524,11 @@ function makeMarketUpdateInstructions(
     .filter((o) => o.marketIndex === marketIndex);
   let moveOrders = openOrders.length === 0 || openOrders.length > 2;
   for (const o of openOrders) {
-    console.log(
-      `${o.side} ${o.price.toString()} -> ${
-        o.side === 'buy' ? bookAdjBid.toString() : bookAdjAsk.toString()
-      }`,
-    );
+    // console.log(
+    //   `${o.side} ${o.price.toString()} -> ${
+    //     o.side === 'buy' ? bookAdjBid.toString() : bookAdjAsk.toString()
+    //   }`,
+    // );
 
     if (o.side === 'buy') {
       if (
@@ -562,10 +661,11 @@ function makeMarketUpdateInstructions(
     instructions.push(cancelAllInstr);
     instructions.push(placeBidInstr);
     instructions.push(placeAskInstr);
+    console.log(`${marketContext.marketName} Requoting`);
   } else {
-    console.log(
-      `${marketContext.marketName} Not requoting. No need to move orders`,
-    );
+    // console.log(
+    //   `${marketContext.marketName} Not requoting. No need to move orders`,
+    // );
   }
 
   // if instruction is only the sequence enforcement, then just send empty
