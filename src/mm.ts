@@ -1,7 +1,8 @@
 import {
   Account,
   Commitment,
-  Connection, PublicKey,
+  Connection,
+  PublicKey,
   Transaction,
   TransactionInstruction,
 } from '@solana/web3.js';
@@ -15,6 +16,7 @@ import {
   Config,
   getMultipleAccounts,
   getPerpMarketByBaseSymbol,
+  getUnixTs,
   GroupConfig,
   IDS,
   makeCancelAllPerpOrdersInstruction,
@@ -33,7 +35,20 @@ import {
 } from '@blockworks-foundation/mango-client';
 import { OpenOrders } from '@project-serum/serum';
 import path from 'path';
-import { loadMangoAccountWithName, loadMangoAccountWithPubkey } from './utils';
+import {
+  loadMangoAccountWithName,
+  loadMangoAccountWithPubkey,
+  makeCheckAndSetSequenceNumberInstruction,
+  makeInitSequenceInstruction,
+  seqEnforcerProgramId,
+} from './utils';
+import {
+  normalizeBookChanges,
+  normalizeTrades,
+  OrderBook,
+  streamNormalized,
+} from 'tardis-dev';
+import { findProgramAddressSync } from '@project-serum/anchor/dist/cjs/utils/pubkey';
 
 const paramsFileName = process.env.PARAMS || 'default.json';
 const params = JSON.parse(
@@ -72,6 +87,12 @@ type MarketContext = {
   marketIndex: number;
   bids: BookSide;
   asks: BookSide;
+
+  tardisBook: TardisBook;
+  lastUpdate: number;
+
+  sequenceAccount: PublicKey;
+  sequenceAccountBump: number;
 };
 /**
  * Load MangoCache, MangoAccount and Bids and Asks for all PerpMarkets using only
@@ -156,6 +177,32 @@ async function loadAccountAndMarketState(
     marketContexts,
   };
 }
+
+/**
+ * Long running service that keeps FTX perp books updated via websocket using Tardis
+ */
+async function listenFtxBooks(marketContexts: MarketContext[]) {
+  const symbolToContext = Object.fromEntries(
+    marketContexts.map((mc) => [mc.marketName, mc]),
+  );
+
+  const messages = streamNormalized(
+    {
+      exchange: 'ftx',
+      symbols: marketContexts.map((mc) => mc.marketName),
+    },
+    normalizeTrades,
+    normalizeBookChanges,
+  );
+
+  for await (const msg of messages) {
+    if (msg.type === 'book_change') {
+      symbolToContext[msg.symbol].tardisBook.update(msg);
+      symbolToContext[msg.symbol].lastUpdate = msg.timestamp.getTime() / 1000;
+    }
+  }
+}
+
 async function fullMarketMaker() {
   const connection = new Connection(
     process.env.ENDPOINT_URL || config.cluster_urls[cluster],
@@ -194,6 +241,12 @@ async function fullMarketMaker() {
       groupIds,
       baseSymbol,
     ) as PerpMarketConfig;
+
+    const [sequenceAccount, sequenceAccountBump] = findProgramAddressSync(
+      [new Buffer(perpMarketConfig.name, 'utf-8'), payer.publicKey.toBytes()],
+      seqEnforcerProgramId,
+    );
+
     const perpMarket = await client.getPerpMarket(
       perpMarketConfig.publicKey,
       perpMarketConfig.baseDecimals,
@@ -207,8 +260,27 @@ async function fullMarketMaker() {
       marketIndex: perpMarketConfig.marketIndex,
       bids: await perpMarket.loadBids(connection),
       asks: await perpMarket.loadAsks(connection),
+      tardisBook: new TardisBook(),
+      lastUpdate: 0,
+      sequenceAccount,
+      sequenceAccountBump,
     });
   }
+
+  // Initialize all the sequence accounts
+  const seqAccInstrs = marketContexts.map((mc) =>
+    makeInitSequenceInstruction(
+      mc.sequenceAccount,
+      payer.publicKey,
+      mc.sequenceAccountBump,
+      mc.marketName,
+    ),
+  );
+  const seqAccTx = new Transaction();
+  seqAccTx.add(...seqAccInstrs);
+  const seqAccTxid = await client.sendTransaction(seqAccTx, payer, []);
+
+  listenFtxBooks(marketContexts);
 
   process.on('SIGINT', function () {
     console.log('Caught keyboard interrupt. Canceling orders');
@@ -228,7 +300,6 @@ async function fullMarketMaker() {
 
       let j = 0;
       let tx = new Transaction();
-      const txProms: any[] = [];
       for (let i = 0; i < marketContexts.length; i++) {
         const instrSet = makeMarketUpdateInstructions(
           mangoGroup,
@@ -241,18 +312,14 @@ async function fullMarketMaker() {
           instrSet.forEach((ix) => tx.add(ix));
           j++;
           if (j === params.batch) {
-            txProms.push(client.sendTransaction(tx, payer, []));
+            client.sendTransaction(tx, payer, [], null);
             tx = new Transaction();
             j = 0;
           }
         }
       }
       if (tx.instructions.length) {
-        txProms.push(client.sendTransaction(tx, payer, []));
-      }
-      if (txProms.length) {
-        const txids = await Promise.all(txProms);
-        txids.forEach((txid) => console.log(`success ${txid.toString()}`));
+        client.sendTransaction(tx, payer, [], null);
       }
     } catch (e) {
       console.log(e);
@@ -262,6 +329,29 @@ async function fullMarketMaker() {
       );
       await sleep(control.interval);
     }
+  }
+}
+
+class TardisBook extends OrderBook {
+  getSizedBestBid(quoteSize: number): number | undefined {
+    let rem = quoteSize;
+    for (const bid of this.bids()) {
+      rem -= bid.amount * bid.price;
+      if (rem <= 0) {
+        return bid.price;
+      }
+    }
+    return undefined;
+  }
+  getSizedBestAsk(quoteSize: number): number | undefined {
+    let rem = quoteSize;
+    for (const ask of this.asks()) {
+      rem -= ask.amount * ask.price;
+      if (rem <= 0) {
+        return ask.price;
+      }
+    }
+    return undefined;
   }
 }
 
@@ -276,7 +366,21 @@ function makeMarketUpdateInstructions(
   const market = marketContext.market;
   const bids = marketContext.bids;
   const asks = marketContext.asks;
-  const fairValue = group.getPrice(marketIndex, cache).toNumber();
+
+  const ftxBid = marketContext.tardisBook.getSizedBestBid(
+    marketContext.params.ftxSize || 100000,
+  );
+  const ftxAsk = marketContext.tardisBook.getSizedBestAsk(
+    marketContext.params.ftxSize || 100000,
+  );
+  if (ftxBid === undefined || ftxAsk === undefined) {
+    // TODO deal with this better; probably cancel all if there are any orders open
+    console.log(`${marketContext.marketName} No FTX book`);
+    return [];
+  }
+
+  const fairValue = (ftxBid + ftxAsk) / 2;
+  const ftxSpread = (ftxAsk - ftxBid) / fairValue;
   const equity = mangoAccount.computeValue(group, cache).toNumber();
   const perpAccount = mangoAccount.perpAccounts[marketIndex];
   // TODO look at event queue as well for unprocessed fills
@@ -284,7 +388,7 @@ function makeMarketUpdateInstructions(
 
   const sizePerc = marketContext.params.sizePerc;
   const leanCoeff = marketContext.params.leanCoeff;
-  const charge = marketContext.params.charge;
+  const charge = (marketContext.params.charge || 0.0015) + ftxSpread / 2;
   const bias = marketContext.params.bias;
   const requoteThresh = marketContext.params.requoteThresh;
   const takeSpammers = marketContext.params.takeSpammers;
@@ -343,7 +447,14 @@ function makeMarketUpdateInstructions(
   }
 
   // Start building the transaction
-  const instructions: TransactionInstruction[] = [];
+  const instructions: TransactionInstruction[] = [
+    makeCheckAndSetSequenceNumberInstruction(
+      marketContext.sequenceAccount,
+      payer.publicKey,
+      Math.round(getUnixTs() * 1000),
+    ),
+  ];
+
   /*
   Clear 1 lot size orders at the top of book that bad people use to manipulate the price
    */
@@ -457,7 +568,12 @@ function makeMarketUpdateInstructions(
     );
   }
 
-  return instructions;
+  // if instruction is only the sequence enforcement, then just send empty
+  if (instructions.length === 1) {
+    return [];
+  } else {
+    return instructions;
+  }
 }
 
 async function onExit(
