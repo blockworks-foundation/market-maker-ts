@@ -106,6 +106,7 @@ async function listenAccountAndMarketState(
     mangoAccount: MangoAccount;
     marketContexts: MarketContext[];
   },
+  stateRefreshInterval: number,
 ) {
   while (control.isRunning) {
     try {
@@ -187,7 +188,7 @@ async function listenAccountAndMarketState(
         e,
       );
     } finally {
-      await sleep(1000);
+      await sleep(stateRefreshInterval);
     }
   }
 }
@@ -384,7 +385,14 @@ async function fullMarketMaker() {
     mangoAccount,
     marketContexts,
   );
-  listenAccountAndMarketState(connection, mangoGroup, state);
+
+  const stateRefreshInterval = params.stateRefreshInterval || 500;
+  listenAccountAndMarketState(
+    connection,
+    mangoGroup,
+    state,
+    stateRefreshInterval,
+  );
   listenFtxBooks(marketContexts);
 
   process.on('SIGINT', function () {
