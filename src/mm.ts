@@ -550,7 +550,7 @@ function makeMarketUpdateInstructions(
       .filter((o) => o.marketIndex === marketIndex);
     moveOrders = openOrders.length < 2 || openOrders.length > 2;
     for (const o of openOrders) {
-      const refPrice = o.side === 'buy' ? bookAdjBid : bookAdjBid;
+      const refPrice = o.side === 'buy' ? bookAdjBid : bookAdjAsk;
       moveOrders =
         moveOrders ||
         Math.abs(o.price.toNumber() / refPrice.toNumber() - 1) > requoteThresh;
