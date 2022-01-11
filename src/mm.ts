@@ -560,10 +560,7 @@ function makeMarketUpdateInstructions(
     moveOrders =
       moveOrders ||
       Math.abs(marketContext.sentBidPrice / bookAdjBid.toNumber() - 1) >
-        requoteThresh;
-
-    moveOrders =
-      moveOrders ||
+        requoteThresh ||
       Math.abs(marketContext.sentAskPrice / bookAdjAsk.toNumber() - 1) >
         requoteThresh;
   }
@@ -684,7 +681,9 @@ function makeMarketUpdateInstructions(
     instructions.push(cancelAllInstr);
     instructions.push(placeBidInstr);
     instructions.push(placeAskInstr);
-    console.log(`${marketContext.marketName} Requoting`);
+    console.log(
+      `${marketContext.marketName} Requoting sentBidPx: ${marketContext.sentBidPrice} newBidPx: ${bookAdjBid} sentAskPx: ${marketContext.sentAskPrice} newAskPx: ${bookAdjAsk}`,
+    );
     marketContext.sentBidPrice = bookAdjBid.toNumber();
     marketContext.sentAskPrice = bookAdjAsk.toNumber();
     marketContext.lastOrderUpdate = getUnixTs() / 1000;
