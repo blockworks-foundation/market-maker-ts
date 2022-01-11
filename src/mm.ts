@@ -87,12 +87,17 @@ type MarketContext = {
   marketIndex: number;
   bids: BookSide;
   asks: BookSide;
+  lastBookUpdate: number;
 
   tardisBook: TardisBook;
-  lastUpdate: number;
+  lastTardisUpdate: number;
 
   sequenceAccount: PublicKey;
   sequenceAccountBump: number;
+
+  sentBidPrice: number;
+  sentAskPrice: number;
+  lastOrderUpdate: number;
 };
 
 /**
@@ -126,6 +131,7 @@ async function listenAccountAndMarketState(
         ),
       ];
 
+      const ts = getUnixTs() / 1000;
       const accountInfos = await getMultipleAccounts(connection, allAccounts);
 
       const cache = new MangoCache(
@@ -173,6 +179,7 @@ async function listenAccountAndMarketState(
           2 + inBasketOpenOrders.length + 2 * state.marketContexts.length,
         )
         .forEach((ai, i) => {
+          state.marketContexts[i].lastBookUpdate = ts;
           state.marketContexts[i].asks = new BookSide(
             ai.publicKey,
             state.marketContexts[i].market,
@@ -219,6 +226,7 @@ async function loadAccountAndMarketState(
     ...marketContexts.map((marketContext) => marketContext.market.asks),
   ];
 
+  const ts = getUnixTs() / 1000;
   const accountInfos = await getMultipleAccounts(connection, allAccounts);
 
   const cache = new MangoCache(
@@ -263,6 +271,7 @@ async function loadAccountAndMarketState(
       2 + inBasketOpenOrders.length + 2 * marketContexts.length,
     )
     .forEach((ai, i) => {
+      marketContexts[i].lastBookUpdate = ts;
       marketContexts[i].asks = new BookSide(
         ai.publicKey,
         marketContexts[i].market,
@@ -297,7 +306,8 @@ async function listenFtxBooks(marketContexts: MarketContext[]) {
   for await (const msg of messages) {
     if (msg.type === 'book_change') {
       symbolToContext[msg.symbol].tardisBook.update(msg);
-      symbolToContext[msg.symbol].lastUpdate = msg.timestamp.getTime() / 1000;
+      symbolToContext[msg.symbol].lastTardisUpdate =
+        msg.timestamp.getTime() / 1000;
     }
   }
 }
@@ -359,10 +369,14 @@ async function fullMarketMaker() {
       marketIndex: perpMarketConfig.marketIndex,
       bids: await perpMarket.loadBids(connection),
       asks: await perpMarket.loadAsks(connection),
+      lastBookUpdate: 0,
       tardisBook: new TardisBook(),
-      lastUpdate: 0,
+      lastTardisUpdate: 0,
       sequenceAccount,
       sequenceAccountBump,
+      sentBidPrice: 0,
+      sentAskPrice: 0,
+      lastOrderUpdate: 0,
     });
   }
 
@@ -527,30 +541,31 @@ function makeMarketUpdateInstructions(
       : modelAskPrice;
 
   // TODO use order book to requote if size has changed
-  const openOrders = mangoAccount
-    .getPerpOpenOrders()
-    .filter((o) => o.marketIndex === marketIndex);
-  let moveOrders = openOrders.length === 0 || openOrders.length > 2;
-  for (const o of openOrders) {
-    // console.log(
-    //   `${o.side} ${o.price.toString()} -> ${
-    //     o.side === 'buy' ? bookAdjBid.toString() : bookAdjAsk.toString()
-    //   }`,
-    // );
 
-    if (o.side === 'buy') {
-      if (
-        Math.abs(o.price.toNumber() / bookAdjBid.toNumber() - 1) > requoteThresh
-      ) {
-        moveOrders = true;
-      }
-    } else {
-      if (
-        Math.abs(o.price.toNumber() / bookAdjAsk.toNumber() - 1) > requoteThresh
-      ) {
-        moveOrders = true;
-      }
+  let moveOrders = false;
+  if (marketContext.lastBookUpdate >= marketContext.lastOrderUpdate) {
+    // if mango book was updated recently, then MangoAccount was also updated
+    const openOrders = mangoAccount
+      .getPerpOpenOrders()
+      .filter((o) => o.marketIndex === marketIndex);
+    moveOrders = openOrders.length < 2 || openOrders.length > 2;
+    for (const o of openOrders) {
+      const refPrice = o.side === 'buy' ? bookAdjBid : bookAdjBid;
+      moveOrders =
+        moveOrders ||
+        Math.abs(o.price.toNumber() / refPrice.toNumber() - 1) > requoteThresh;
     }
+  } else {
+    // If order was updated before MangoAccount, then assume that sent order already executed
+    moveOrders =
+      moveOrders ||
+      Math.abs(marketContext.sentBidPrice / bookAdjBid.toNumber() - 1) >
+        requoteThresh;
+
+    moveOrders =
+      moveOrders ||
+      Math.abs(marketContext.sentAskPrice / bookAdjAsk.toNumber() - 1) >
+        requoteThresh;
   }
 
   // Start building the transaction
@@ -670,6 +685,9 @@ function makeMarketUpdateInstructions(
     instructions.push(placeBidInstr);
     instructions.push(placeAskInstr);
     console.log(`${marketContext.marketName} Requoting`);
+    marketContext.sentBidPrice = bookAdjBid.toNumber();
+    marketContext.sentAskPrice = bookAdjAsk.toNumber();
+    marketContext.lastOrderUpdate = getUnixTs() / 1000;
   } else {
     // console.log(
     //   `${marketContext.marketName} Not requoting. No need to move orders`,
