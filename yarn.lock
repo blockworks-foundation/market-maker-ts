@@ -31,14 +31,14 @@
     regenerator-runtime "^0.13.4"
 
 "@blockworks-foundation/mango-client@git+https://github.com/blockworks-foundation/mango-client-v3.git":
-  version "3.2.21"
-  resolved "git+https://github.com/blockworks-foundation/mango-client-v3.git#c0a9e758f82e5d4ce008d931bbabfa7adfb7b325"
+  version "3.3.1"
+  resolved "git+https://github.com/blockworks-foundation/mango-client-v3.git#3aac7b792a0d8d1b4733bcd5039833c233cd34fe"
   dependencies:
     "@project-serum/anchor" "^0.16.2"
     "@project-serum/serum" "0.13.55"
     "@project-serum/sol-wallet-adapter" "^0.2.0"
     "@solana/spl-token" "^0.1.6"
-    "@solana/web3.js" "1.21.0"
+    "@solana/web3.js" "^1.31.0"
     big.js "^6.1.1"
     bn.js "^5.2.0"
     buffer-layout "^1.2.1"
@@ -238,7 +238,7 @@
     superstruct "^0.14.2"
     tweetnacl "^1.0.0"
 
-"@solana/web3.js@^1.17.0", "@solana/web3.js@^1.21.0":
+"@solana/web3.js@^1.17.0", "@solana/web3.js@^1.21.0", "@solana/web3.js@^1.31.0":
   version "1.31.0"
   resolved "https://registry.yarnpkg.com/@solana/web3.js/-/web3.js-1.31.0.tgz#7a313d4c1a90b77f27ddbfe845a10d6883e06452"
   integrity sha512-7nHHx1JNFnrt15e9y8m38I/EJCbaB+bFC3KZVM1+QhybCikFxGMtGA5r7PDC3GEL1R2RZA8yKoLkDKo3vzzqnw==

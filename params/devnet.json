@@ -47,16 +47,6 @@
         "spammerCharge": 2
       }
     },
-    "SRM": {
-      "perp": {
-        "sizePerc": 0.0,
-        "leanCoeff": 0.0005,
-        "bias": 0.0,
-        "requoteThresh": 0.0002,
-        "takeSpammers": true,
-        "spammerCharge": 2
-      }
-    },
     "ADA": {
       "perp": {
         "sizePerc": 0.03,

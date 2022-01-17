@@ -318,7 +318,6 @@ async function fullMarketMaker() {
     'processed' as Commitment,
   );
   const client = new MangoClient(connection, mangoProgramId);
-
   // load group
   const mangoGroup = await client.getMangoGroup(mangoGroupKey);
 
@@ -343,6 +342,21 @@ async function fullMarketMaker() {
       'Please add mangoAccountName or mangoAccountPubkey to params file',
     );
   }
+  const perpMarkets = await Promise.all(
+    Object.keys(params.assets).map((baseSymbol) => {
+      const perpMarketConfig = getPerpMarketByBaseSymbol(
+        groupIds,
+        baseSymbol,
+      ) as PerpMarketConfig;
+
+      return client.getPerpMarket(
+        perpMarketConfig.publicKey,
+        perpMarketConfig.baseDecimals,
+        perpMarketConfig.quoteDecimals,
+      );
+    }),
+  );
+  client.cancelAllPerpOrders(mangoGroup, perpMarkets, mangoAccount, payer);
 
   const marketContexts: MarketContext[] = [];
   for (const baseSymbol in params.assets) {
@@ -356,11 +370,12 @@ async function fullMarketMaker() {
       seqEnforcerProgramId,
     );
 
-    const perpMarket = await client.getPerpMarket(
-      perpMarketConfig.publicKey,
-      perpMarketConfig.baseDecimals,
-      perpMarketConfig.quoteDecimals,
+    const perpMarket = perpMarkets.find((pm) =>
+      pm.publicKey.equals(perpMarketConfig.publicKey),
     );
+    if (perpMarket === undefined) {
+      throw new Error('Cannot find perp market');
+    }
     marketContexts.push({
       marketName: perpMarketConfig.name,
       params: params.assets[baseSymbol].perp,
