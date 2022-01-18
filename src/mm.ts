@@ -131,7 +131,7 @@ async function listenAccountAndMarketState(
         ),
       ];
 
-      const ts = getUnixTs() / 1000;
+      const ts = getUnixTs();
       const accountInfos = await getMultipleAccounts(connection, allAccounts);
 
       const cache = new MangoCache(
@@ -226,7 +226,7 @@ async function loadAccountAndMarketState(
     ...marketContexts.map((marketContext) => marketContext.market.asks),
   ];
 
-  const ts = getUnixTs() / 1000;
+  const ts = getUnixTs();
   const accountInfos = await getMultipleAccounts(connection, allAccounts);
 
   const cache = new MangoCache(
@@ -434,6 +434,15 @@ async function fullMarketMaker() {
     try {
       mangoAccount = state.mangoAccount;
 
+      // Calculate portfolio level values
+      let pfQuoteValue = 0;
+      for (const mc of marketContexts) {
+        const pos = mangoAccount.getPerpPositionUi(mc.marketIndex, mc.market);
+        const mid = mc.tardisBook.getMid();
+        if (mid) {
+          pfQuoteValue += pos * mid;
+        }
+      }
       let j = 0;
       let tx = new Transaction();
       for (let i = 0; i < marketContexts.length; i++) {
@@ -442,6 +451,7 @@ async function fullMarketMaker() {
           state.cache,
           mangoAccount,
           marketContexts[i],
+          pfQuoteValue,
         );
 
         if (instrSet.length > 0) {
@@ -489,6 +499,11 @@ class TardisBook extends OrderBook {
     }
     return undefined;
   }
+  getMid(): number | undefined {
+    const b = this.bestBid();
+    const a = this.bestAsk();
+    return a && b ? (a.price + b.price) / 2 : undefined;
+  }
 }
 
 function makeMarketUpdateInstructions(
@@ -496,6 +511,7 @@ function makeMarketUpdateInstructions(
   cache: MangoCache,
   mangoAccount: MangoAccount,
   marketContext: MarketContext,
+  pfQuoteValue: number,
 ): TransactionInstruction[] {
   // Right now only uses the perp
   const marketIndex = marketContext.marketIndex;
@@ -529,10 +545,12 @@ function makeMarketUpdateInstructions(
   const requoteThresh = marketContext.params.requoteThresh;
   const takeSpammers = marketContext.params.takeSpammers;
   const spammerCharge = marketContext.params.spammerCharge;
+  const pfQuoteLeanCoeff = params.pfQuoteLeanCoeff || 0.001; // how much to move if pf pos is equal to equity
   const size = (equity * sizePerc) / fairValue;
   const lean = (-leanCoeff * basePos) / size;
-  const bidPrice = fairValue * (1 - charge + lean + bias);
-  const askPrice = fairValue * (1 + charge + lean + bias);
+  const pfQuoteLean = (pfQuoteValue / equity) * -pfQuoteLeanCoeff;
+  const bidPrice = fairValue * (1 - charge + lean + bias + pfQuoteLean);
+  const askPrice = fairValue * (1 + charge + lean + bias + pfQuoteLean);
   // TODO volatility adjustment
 
   const [modelBidPrice, nativeBidSize] = market.uiToNativePriceQuantity(
@@ -558,7 +576,7 @@ function makeMarketUpdateInstructions(
   // TODO use order book to requote if size has changed
 
   let moveOrders = false;
-  if (marketContext.lastBookUpdate >= marketContext.lastOrderUpdate) {
+  if (marketContext.lastBookUpdate >= marketContext.lastOrderUpdate + 2) {
     // if mango book was updated recently, then MangoAccount was also updated
     const openOrders = mangoAccount
       .getPerpOpenOrders()
@@ -697,11 +715,11 @@ function makeMarketUpdateInstructions(
     instructions.push(placeBidInstr);
     instructions.push(placeAskInstr);
     console.log(
-      `${marketContext.marketName} Requoting sentBidPx: ${marketContext.sentBidPrice} newBidPx: ${bookAdjBid} sentAskPx: ${marketContext.sentAskPrice} newAskPx: ${bookAdjAsk}`,
+      `${marketContext.marketName} Requoting sentBidPx: ${marketContext.sentBidPrice} newBidPx: ${bookAdjBid} sentAskPx: ${marketContext.sentAskPrice} newAskPx: ${bookAdjAsk} pfLean: ${pfQuoteLean}`,
     );
     marketContext.sentBidPrice = bookAdjBid.toNumber();
     marketContext.sentAskPrice = bookAdjAsk.toNumber();
-    marketContext.lastOrderUpdate = getUnixTs() / 1000;
+    marketContext.lastOrderUpdate = getUnixTs();
   } else {
     // console.log(
     //   `${marketContext.marketName} Not requoting. No need to move orders`,
