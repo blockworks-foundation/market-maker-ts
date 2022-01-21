@@ -473,7 +473,7 @@ async function fullMarketMaker() {
           instrSet.forEach((ix) => tx.add(ix));
           j++;
           if (j === params.batch) {
-            sendDupTxs(client, tx, [], 2);
+            sendDupTxs(client, tx, [], 10);
             // client.sendTransaction(tx, payer, [], null);
             tx = new Transaction();
             j = 0;
@@ -481,7 +481,7 @@ async function fullMarketMaker() {
         }
       }
       if (tx.instructions.length) {
-        sendDupTxs(client, tx, [], 2);
+        sendDupTxs(client, tx, [], 10);
         // client.sendTransaction(tx, payer, [], null);
       }
     } catch (e) {
