@@ -5,6 +5,7 @@ import {
   PublicKey,
   Transaction,
   TransactionInstruction,
+  TransactionSignature,
 } from '@solana/web3.js';
 import fs from 'fs';
 import os from 'os';
@@ -458,14 +459,16 @@ async function fullMarketMaker() {
           instrSet.forEach((ix) => tx.add(ix));
           j++;
           if (j === params.batch) {
-            client.sendTransaction(tx, payer, [], null);
+            sendDupTxs(client, tx, [], 10);
+            // client.sendTransaction(tx, payer, [], null);
             tx = new Transaction();
             j = 0;
           }
         }
       }
       if (tx.instructions.length) {
-        client.sendTransaction(tx, payer, [], null);
+        sendDupTxs(client, tx, [], 10);
+        // client.sendTransaction(tx, payer, [], null);
       }
     } catch (e) {
       console.log(e);
@@ -476,6 +479,32 @@ async function fullMarketMaker() {
       await sleep(control.interval);
     }
   }
+}
+
+async function sendDupTxs(
+  client: MangoClient,
+  transaction: Transaction,
+  signers: Account[],
+  n: number,
+) {
+  await client.signTransaction({
+    transaction,
+    payer,
+    signers,
+  });
+
+  const rawTransaction = transaction.serialize();
+
+  const transactions: Promise<TransactionSignature>[] = [];
+  for (let i = 0; i < n; i++) {
+    transactions.push(
+      client.connection.sendRawTransaction(rawTransaction, {
+        skipPreflight: true,
+      }),
+    );
+  }
+
+  await Promise.all(transactions);
 }
 
 class TardisBook extends OrderBook {
