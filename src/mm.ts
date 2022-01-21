@@ -313,6 +313,33 @@ async function listenFtxBooks(marketContexts: MarketContext[]) {
   }
 }
 
+async function initSeqEnfAccounts(
+  client: MangoClient,
+  marketContexts: MarketContext[],
+) {
+  // Initialize all the sequence accounts
+  const seqAccInstrs = marketContexts.map((mc) =>
+    makeInitSequenceInstruction(
+      mc.sequenceAccount,
+      payer.publicKey,
+      mc.sequenceAccountBump,
+      mc.marketName,
+    ),
+  );
+  const seqAccTx = new Transaction();
+  seqAccTx.add(...seqAccInstrs);
+
+  while (true) {
+    try {
+      const seqAccTxid = await client.sendTransaction(seqAccTx, payer, []);
+    } catch (e) {
+      console.log('failed to initialize sequence enforcer');
+      console.log(e);
+      continue;
+    }
+    break;
+  }
+}
 async function fullMarketMaker() {
   const connection = new Connection(
     process.env.ENDPOINT_URL || config.cluster_urls[cluster],
@@ -358,7 +385,6 @@ async function fullMarketMaker() {
     }),
   );
   client.cancelAllPerpOrders(mangoGroup, perpMarkets, mangoAccount, payer);
-
   const marketContexts: MarketContext[] = [];
   for (const baseSymbol in params.assets) {
     const perpMarketConfig = getPerpMarketByBaseSymbol(
@@ -395,19 +421,8 @@ async function fullMarketMaker() {
       lastOrderUpdate: 0,
     });
   }
-
-  // Initialize all the sequence accounts
-  const seqAccInstrs = marketContexts.map((mc) =>
-    makeInitSequenceInstruction(
-      mc.sequenceAccount,
-      payer.publicKey,
-      mc.sequenceAccountBump,
-      mc.marketName,
-    ),
-  );
-  const seqAccTx = new Transaction();
-  seqAccTx.add(...seqAccInstrs);
-  const seqAccTxid = await client.sendTransaction(seqAccTx, payer, []);
+  initSeqEnfAccounts(client, marketContexts);
+  listenFtxBooks(marketContexts);
 
   const state = await loadAccountAndMarketState(
     connection,
@@ -423,7 +438,6 @@ async function fullMarketMaker() {
     state,
     stateRefreshInterval,
   );
-  listenFtxBooks(marketContexts);
 
   process.on('SIGINT', function () {
     console.log('Caught keyboard interrupt. Canceling orders');
@@ -494,7 +508,6 @@ async function sendDupTxs(
   });
 
   const rawTransaction = transaction.serialize();
-
   const transactions: Promise<TransactionSignature>[] = [];
   for (let i = 0; i < n; i++) {
     transactions.push(
