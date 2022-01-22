@@ -754,8 +754,13 @@ function makeMarketUpdateInstructions(
       'postOnlySlide',
     );
     instructions.push(cancelAllInstr);
-    instructions.push(placeBidInstr);
-    instructions.push(placeAskInstr);
+    const posAsTradeSizes = basePos / size;
+    if (posAsTradeSizes < 15) {
+      instructions.push(placeBidInstr);
+    }
+    if (posAsTradeSizes > -15) {
+      instructions.push(placeAskInstr);
+    }
     console.log(
       `${marketContext.marketName} Requoting sentBidPx: ${marketContext.sentBidPrice} newBidPx: ${bookAdjBid} sentAskPx: ${marketContext.sentAskPrice} newAskPx: ${bookAdjAsk} pfLean: ${pfQuoteLean}`,
     );
