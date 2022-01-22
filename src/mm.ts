@@ -473,16 +473,16 @@ async function fullMarketMaker() {
           instrSet.forEach((ix) => tx.add(ix));
           j++;
           if (j === params.batch) {
-            sendDupTxs(client, tx, [], 10);
-            // client.sendTransaction(tx, payer, [], null);
+            // sendDupTxs(client, tx, [], 10);
+            client.sendTransaction(tx, payer, [], null);
             tx = new Transaction();
             j = 0;
           }
         }
       }
       if (tx.instructions.length) {
-        sendDupTxs(client, tx, [], 10);
-        // client.sendTransaction(tx, payer, [], null);
+        // sendDupTxs(client, tx, [], 10);
+        client.sendTransaction(tx, payer, [], null);
       }
     } catch (e) {
       console.log(e);
