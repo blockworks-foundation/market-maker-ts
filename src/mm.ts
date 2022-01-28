@@ -306,9 +306,11 @@ async function listenFtxBooks(marketContexts: MarketContext[]) {
 
   for await (const msg of messages) {
     if (msg.type === 'book_change') {
-      symbolToContext[msg.symbol].tardisBook.update(msg);
-      symbolToContext[msg.symbol].lastTardisUpdate =
-        msg.timestamp.getTime() / 1000;
+      const mc = symbolToContext[msg.symbol];
+      mc.tardisBook.update(msg);
+      mc.lastTardisUpdate = msg.timestamp.getTime() / 1000;
+
+      // Determine if you need to update
     }
   }
 }
@@ -495,6 +497,27 @@ async function fullMarketMaker() {
   }
 }
 
+// function listenMarketState(
+//   mangoClient: MangoClient,
+//   state: { mangoAccount: MangoAccount; marketContexts: MarketContext[] },
+// ) {
+//   const subscriptionId = mangoClient.connection.onAccountChange(
+//     state.mangoAccount.publicKey,
+//     (info) => {
+//       const decodedMangoAccount = MangoAccountLayout.decode(info?.data);
+//       state.mangoAccount = new MangoAccount(
+//         state.mangoAccount.publicKey,
+//         decodedMangoAccount,
+//       );
+//     },
+//     'processed',
+//   );
+//
+//   for (const mc of state.marketContexts) {
+//     mangoClient.connection.onAccountChange(mc.market.bids, (info) => {});
+//   }
+// }
+
 async function sendDupTxs(
   client: MangoClient,
   transaction: Transaction,
@@ -521,7 +544,7 @@ async function sendDupTxs(
 }
 
 class TardisBook extends OrderBook {
-  getSizedBestBid(quoteSize: number): number | undefined {
+  getQuoteSizedBestBid(quoteSize: number): number | undefined {
     let rem = quoteSize;
     for (const bid of this.bids()) {
       rem -= bid.amount * bid.price;
@@ -531,7 +554,7 @@ class TardisBook extends OrderBook {
     }
     return undefined;
   }
-  getSizedBestAsk(quoteSize: number): number | undefined {
+  getQuoteSizedBestAsk(quoteSize: number): number | undefined {
     let rem = quoteSize;
     for (const ask of this.asks()) {
       rem -= ask.amount * ask.price;
@@ -560,12 +583,14 @@ function makeMarketUpdateInstructions(
   const market = marketContext.market;
   const bids = marketContext.bids;
   const asks = marketContext.asks;
-
-  const ftxBid = marketContext.tardisBook.getSizedBestBid(
-    marketContext.params.ftxSize || 100000,
+  const equity = mangoAccount.computeValue(group, cache).toNumber();
+  const sizePerc = marketContext.params.sizePerc;
+  const quoteSize = equity * sizePerc;
+  const ftxBid = marketContext.tardisBook.getQuoteSizedBestBid(
+    marketContext.params.ftxSize || quoteSize,
   );
-  const ftxAsk = marketContext.tardisBook.getSizedBestAsk(
-    marketContext.params.ftxSize || 100000,
+  const ftxAsk = marketContext.tardisBook.getQuoteSizedBestAsk(
+    marketContext.params.ftxSize || quoteSize,
   );
   if (ftxBid === undefined || ftxAsk === undefined) {
     // TODO deal with this better; probably cancel all if there are any orders open
@@ -575,12 +600,10 @@ function makeMarketUpdateInstructions(
 
   const fairValue = (ftxBid + ftxAsk) / 2;
   const ftxSpread = (ftxAsk - ftxBid) / fairValue;
-  const equity = mangoAccount.computeValue(group, cache).toNumber();
   const perpAccount = mangoAccount.perpAccounts[marketIndex];
   // TODO look at event queue as well for unprocessed fills
   const basePos = perpAccount.getBasePositionUi(market);
 
-  const sizePerc = marketContext.params.sizePerc;
   const leanCoeff = marketContext.params.leanCoeff;
   const charge = (marketContext.params.charge || 0.0015) + ftxSpread / 2;
   const bias = marketContext.params.bias;
@@ -588,7 +611,7 @@ function makeMarketUpdateInstructions(
   const takeSpammers = marketContext.params.takeSpammers;
   const spammerCharge = marketContext.params.spammerCharge;
   const pfQuoteLeanCoeff = params.pfQuoteLeanCoeff || 0.001; // how much to move if pf pos is equal to equity
-  const size = (equity * sizePerc) / fairValue;
+  const size = quoteSize / fairValue;
   const lean = (-leanCoeff * basePos) / size;
   const pfQuoteLean = (pfQuoteValue / equity) * -pfQuoteLeanCoeff;
   const bidPrice = fairValue * (1 - charge + lean + bias + pfQuoteLean);
