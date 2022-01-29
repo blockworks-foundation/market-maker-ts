@@ -80,6 +80,12 @@ const mangoGroupKey = groupIds.publicKey;
 
 const control = { isRunning: true, interval: params.interval };
 
+type State = {
+  cache: MangoCache;
+  mangoAccount: MangoAccount;
+  lastMangoAccountUpdate: number;
+  marketContexts: MarketContext[];
+};
 type MarketContext = {
   marketName: string;
   params: any;
@@ -90,8 +96,10 @@ type MarketContext = {
   asks: BookSide;
   lastBookUpdate: number;
 
-  tardisBook: TardisBook;
-  lastTardisUpdate: number;
+  books: {
+    ftx: { book: TardisBook; updateTime: number };
+    binance: { book: TardisBook; updateTime: number };
+  };
 
   sequenceAccount: PublicKey;
   sequenceAccountBump: number;
@@ -102,106 +110,6 @@ type MarketContext = {
 };
 
 /**
- * Periodically fetch the account and market state
- */
-async function listenAccountAndMarketState(
-  connection: Connection,
-  group: MangoGroup,
-  state: {
-    cache: MangoCache;
-    mangoAccount: MangoAccount;
-    marketContexts: MarketContext[];
-  },
-  stateRefreshInterval: number,
-) {
-  while (control.isRunning) {
-    try {
-      const inBasketOpenOrders = state.mangoAccount
-        .getOpenOrdersKeysInBasket()
-        .filter((pk) => !pk.equals(zeroKey));
-
-      const allAccounts = [
-        group.mangoCache,
-        state.mangoAccount.publicKey,
-        ...inBasketOpenOrders,
-        ...state.marketContexts.map(
-          (marketContext) => marketContext.market.bids,
-        ),
-        ...state.marketContexts.map(
-          (marketContext) => marketContext.market.asks,
-        ),
-      ];
-
-      const ts = getUnixTs();
-      const accountInfos = await getMultipleAccounts(connection, allAccounts);
-
-      const cache = new MangoCache(
-        accountInfos[0].publicKey,
-        MangoCacheLayout.decode(accountInfos[0].accountInfo.data),
-      );
-
-      const mangoAccount = new MangoAccount(
-        accountInfos[1].publicKey,
-        MangoAccountLayout.decode(accountInfos[1].accountInfo.data),
-      );
-      const openOrdersAis = accountInfos.slice(
-        2,
-        2 + inBasketOpenOrders.length,
-      );
-      for (let i = 0; i < openOrdersAis.length; i++) {
-        const ai = openOrdersAis[i];
-        const marketIndex = mangoAccount.spotOpenOrders.findIndex((soo) =>
-          soo.equals(ai.publicKey),
-        );
-        mangoAccount.spotOpenOrdersAccounts[marketIndex] =
-          OpenOrders.fromAccountInfo(
-            ai.publicKey,
-            ai.accountInfo,
-            group.dexProgramId,
-          );
-      }
-
-      accountInfos
-        .slice(
-          2 + inBasketOpenOrders.length,
-          2 + inBasketOpenOrders.length + state.marketContexts.length,
-        )
-        .forEach((ai, i) => {
-          state.marketContexts[i].bids = new BookSide(
-            ai.publicKey,
-            state.marketContexts[i].market,
-            BookSideLayout.decode(ai.accountInfo.data),
-          );
-        });
-
-      accountInfos
-        .slice(
-          2 + inBasketOpenOrders.length + state.marketContexts.length,
-          2 + inBasketOpenOrders.length + 2 * state.marketContexts.length,
-        )
-        .forEach((ai, i) => {
-          state.marketContexts[i].lastBookUpdate = ts;
-          state.marketContexts[i].asks = new BookSide(
-            ai.publicKey,
-            state.marketContexts[i].market,
-            BookSideLayout.decode(ai.accountInfo.data),
-          );
-        });
-
-      state.mangoAccount = mangoAccount;
-      state.cache = cache;
-    } catch (e) {
-      console.error(
-        `${new Date().getUTCDate().toString()} failed when loading state`,
-        e,
-      );
-    } finally {
-      await sleep(stateRefreshInterval);
-    }
-  }
-}
-
-/**
  * Load MangoCache, MangoAccount and Bids and Asks for all PerpMarkets using only
  * one RPC call.
  */
@@ -210,11 +118,7 @@ async function loadAccountAndMarketState(
   group: MangoGroup,
   oldMangoAccount: MangoAccount,
   marketContexts: MarketContext[],
-): Promise<{
-  cache: MangoCache;
-  mangoAccount: MangoAccount;
-  marketContexts: MarketContext[];
-}> {
+): Promise<State> {
   const inBasketOpenOrders = oldMangoAccount
     .getOpenOrdersKeysInBasket()
     .filter((pk) => !pk.equals(zeroKey));
@@ -283,6 +187,7 @@ async function loadAccountAndMarketState(
   return {
     cache,
     mangoAccount,
+    lastMangoAccountUpdate: ts,
     marketContexts,
   };
 }
@@ -307,8 +212,51 @@ async function listenFtxBooks(marketContexts: MarketContext[]) {
   for await (const msg of messages) {
     if (msg.type === 'book_change') {
       const mc = symbolToContext[msg.symbol];
-      mc.tardisBook.update(msg);
-      mc.lastTardisUpdate = msg.timestamp.getTime() / 1000;
+      mc.books.ftx.book.update(msg);
+      mc.books.ftx.updateTime = msg.timestamp.getTime() / 1000;
+
+      // TODO update if agg bid has moved significantly
+    }
+  }
+}
+async function listenBinanceBooks(marketContexts: MarketContext[]) {
+  const binanceList = [
+    'BTCUSDT',
+    'ETHUSDT',
+    'SOLUSDT',
+    'RAYUSDT',
+    'SRMUSDT',
+    'BNBUSDT',
+    'AVAXUSDT',
+    'LUNAUSDT',
+    'ADAUSDT',
+  ];
+
+  const binanceMarketContexts = marketContexts.filter((mc) =>
+    binanceList.includes(`${mc.marketName.split('-')[0]}USDT`),
+  );
+  const symbolToContext = Object.fromEntries(
+    binanceMarketContexts.map((mc) => [
+      `${mc.marketName.split('-')[0]}USDT`,
+      mc,
+    ]),
+  );
+  const messages = streamNormalized(
+    {
+      exchange: 'binance-futures',
+      symbols: binanceMarketContexts.map(
+        (mc) => `${mc.marketName.split('-')[0]}USDT`,
+      ),
+    },
+    normalizeTrades,
+    normalizeBookChanges,
+  );
+
+  for await (const msg of messages) {
+    if (msg.type === 'book_change') {
+      const mc = symbolToContext[msg.symbol];
+      mc.books.binance.book.update(msg);
+      mc.books.binance.updateTime = msg.timestamp.getTime() / 1000;
 
       // Determine if you need to update
     }
@@ -414,8 +362,11 @@ async function fullMarketMaker() {
       bids: await perpMarket.loadBids(connection),
       asks: await perpMarket.loadAsks(connection),
       lastBookUpdate: 0,
-      tardisBook: new TardisBook(),
-      lastTardisUpdate: 0,
+      books: {
+        ftx: { book: new TardisBook(), updateTime: 0 },
+        binance: { book: new TardisBook(), updateTime: 0 },
+      },
+
       sequenceAccount,
       sequenceAccountBump,
       sentBidPrice: 0,
@@ -425,6 +376,7 @@ async function fullMarketMaker() {
   }
   initSeqEnfAccounts(client, marketContexts);
   listenFtxBooks(marketContexts);
+  listenBinanceBooks(marketContexts);
 
   const state = await loadAccountAndMarketState(
     connection,
@@ -432,14 +384,7 @@ async function fullMarketMaker() {
     mangoAccount,
     marketContexts,
   );
-
-  const stateRefreshInterval = params.stateRefreshInterval || 500;
-  listenAccountAndMarketState(
-    connection,
-    mangoGroup,
-    state,
-    stateRefreshInterval,
-  );
+  listenState(client, state);
 
   process.on('SIGINT', function () {
     console.log('Caught keyboard interrupt. Canceling orders');
@@ -455,7 +400,7 @@ async function fullMarketMaker() {
       let pfQuoteValue = 0;
       for (const mc of marketContexts) {
         const pos = mangoAccount.getPerpPositionUi(mc.marketIndex, mc.market);
-        const mid = mc.tardisBook.getMid();
+        const mid = mc.books.ftx.book.getMid(); // TODO combine with other book
         if (mid) {
           pfQuoteValue += pos * mid;
         }
@@ -497,26 +442,43 @@ async function fullMarketMaker() {
   }
 }
 
-// function listenMarketState(
-//   mangoClient: MangoClient,
-//   state: { mangoAccount: MangoAccount; marketContexts: MarketContext[] },
-// ) {
-//   const subscriptionId = mangoClient.connection.onAccountChange(
-//     state.mangoAccount.publicKey,
-//     (info) => {
-//       const decodedMangoAccount = MangoAccountLayout.decode(info?.data);
-//       state.mangoAccount = new MangoAccount(
-//         state.mangoAccount.publicKey,
-//         decodedMangoAccount,
-//       );
-//     },
-//     'processed',
-//   );
-//
-//   for (const mc of state.marketContexts) {
-//     mangoClient.connection.onAccountChange(mc.market.bids, (info) => {});
-//   }
-// }
+function listenState(
+  mangoClient: MangoClient,
+
+  state: State,
+) {
+  const subscriptionId = mangoClient.connection.onAccountChange(
+    state.mangoAccount.publicKey,
+    (info) => {
+      const decodedMangoAccount = MangoAccountLayout.decode(info?.data);
+      state.mangoAccount = new MangoAccount(
+        state.mangoAccount.publicKey,
+        decodedMangoAccount,
+      );
+      state.lastMangoAccountUpdate = getUnixTs();
+    },
+    'processed',
+  );
+
+  for (const mc of state.marketContexts) {
+    mangoClient.connection.onAccountChange(mc.market.bids, (info) => {
+      mc.bids = new BookSide(
+        mc.market.bids,
+        mc.market,
+        BookSideLayout.decode(info.data),
+      );
+      mc.lastBookUpdate = getUnixTs();
+    });
+    mangoClient.connection.onAccountChange(mc.market.asks, (info) => {
+      mc.asks = new BookSide(
+        mc.market.asks,
+        mc.market,
+        BookSideLayout.decode(info.data),
+      );
+      mc.lastBookUpdate = getUnixTs();
+    });
+  }
+}
 
 async function sendDupTxs(
   client: MangoClient,
@@ -571,6 +533,19 @@ class TardisBook extends OrderBook {
   }
 }
 
+function listMin(list: (number | undefined)[]): number | undefined {
+  list = list.filter((e) => e !== undefined);
+  if (list.length === 0) return undefined;
+  // @ts-ignore
+  return Math.min(...list);
+}
+function listMax(list: (number | undefined)[]): number | undefined {
+  list = list.filter((e) => e !== undefined);
+  if (list.length === 0) return undefined;
+  // @ts-ignore
+  return Math.max(...list);
+}
+
 function makeMarketUpdateInstructions(
   group: MangoGroup,
   cache: MangoCache,
@@ -586,26 +561,30 @@ function makeMarketUpdateInstructions(
   const equity = mangoAccount.computeValue(group, cache).toNumber();
   const sizePerc = marketContext.params.sizePerc;
   const quoteSize = equity * sizePerc;
-  const ftxBid = marketContext.tardisBook.getQuoteSizedBestBid(
-    marketContext.params.ftxSize || quoteSize,
+  const aggBid = listMin(
+    Object.values(marketContext.books).map(({ book, updateTime }) =>
+      book.getQuoteSizedBestBid(marketContext.params.ftxSize || quoteSize),
+    ),
   );
-  const ftxAsk = marketContext.tardisBook.getQuoteSizedBestAsk(
-    marketContext.params.ftxSize || quoteSize,
+  const aggAsk = listMax(
+    Object.values(marketContext.books).map(({ book, updateTime }) =>
+      book.getQuoteSizedBestAsk(marketContext.params.ftxSize || quoteSize),
+    ),
   );
-  if (ftxBid === undefined || ftxAsk === undefined) {
+  if (aggBid === undefined || aggAsk === undefined) {
     // TODO deal with this better; probably cancel all if there are any orders open
-    console.log(`${marketContext.marketName} No FTX book`);
+    console.log(`${marketContext.marketName} No Agg Book`);
     return [];
   }
 
-  const fairValue = (ftxBid + ftxAsk) / 2;
-  const ftxSpread = (ftxAsk - ftxBid) / fairValue;
+  const fairValue = (aggBid + aggAsk) / 2;
+  const aggSpread = (aggAsk - aggBid) / fairValue;
   const perpAccount = mangoAccount.perpAccounts[marketIndex];
   // TODO look at event queue as well for unprocessed fills
   const basePos = perpAccount.getBasePositionUi(market);
 
   const leanCoeff = marketContext.params.leanCoeff;
-  const charge = (marketContext.params.charge || 0.0015) + ftxSpread / 2;
+  const charge = (marketContext.params.charge || 0.0015) + aggSpread / 2;
   const bias = marketContext.params.bias;
   const requoteThresh = marketContext.params.requoteThresh;
   const takeSpammers = marketContext.params.takeSpammers;
@@ -785,7 +764,13 @@ function makeMarketUpdateInstructions(
       instructions.push(placeAskInstr);
     }
     console.log(
-      `${marketContext.marketName} Requoting sentBidPx: ${marketContext.sentBidPrice} newBidPx: ${bookAdjBid} sentAskPx: ${marketContext.sentAskPrice} newAskPx: ${bookAdjAsk} pfLean: ${pfQuoteLean}`,
+      `${marketContext.marketName} Requoting sentBidPx: ${
+        marketContext.sentBidPrice
+      } newBidPx: ${bookAdjBid} sentAskPx: ${
+        marketContext.sentAskPrice
+      } newAskPx: ${bookAdjAsk} pfLean: ${(pfQuoteLean * 10000).toFixed(
+        1,
+      )} aggBid: ${aggBid} addAsk: ${aggAsk}`,
     );
     marketContext.sentBidPrice = bookAdjBid.toNumber();
     marketContext.sentAskPrice = bookAdjAsk.toNumber();
