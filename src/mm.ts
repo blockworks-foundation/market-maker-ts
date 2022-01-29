@@ -384,7 +384,14 @@ async function fullMarketMaker() {
     mangoAccount,
     marketContexts,
   );
-  listenState(client, state);
+  // listenState(client, state);
+  const stateRefreshInterval = params.stateRefreshInterval || 500;
+  listenAccountAndMarketState(
+    connection,
+    mangoGroup,
+    state,
+    stateRefreshInterval,
+  );
 
   process.on('SIGINT', function () {
     console.log('Caught keyboard interrupt. Canceling orders');
@@ -438,6 +445,103 @@ async function fullMarketMaker() {
         `${new Date().toUTCString()} sleeping for ${control.interval / 1000}s`,
       );
       await sleep(control.interval);
+    }
+  }
+}
+
+/**
+ * Periodically fetch the account and market state
+ */
+async function listenAccountAndMarketState(
+  connection: Connection,
+  group: MangoGroup,
+  state: State,
+  stateRefreshInterval: number,
+) {
+  while (control.isRunning) {
+    try {
+      const inBasketOpenOrders = state.mangoAccount
+        .getOpenOrdersKeysInBasket()
+        .filter((pk) => !pk.equals(zeroKey));
+
+      const allAccounts = [
+        group.mangoCache,
+        state.mangoAccount.publicKey,
+        ...inBasketOpenOrders,
+        ...state.marketContexts.map(
+          (marketContext) => marketContext.market.bids,
+        ),
+        ...state.marketContexts.map(
+          (marketContext) => marketContext.market.asks,
+        ),
+      ];
+
+      const ts = getUnixTs();
+      const accountInfos = await getMultipleAccounts(connection, allAccounts);
+
+      const cache = new MangoCache(
+        accountInfos[0].publicKey,
+        MangoCacheLayout.decode(accountInfos[0].accountInfo.data),
+      );
+
+      const mangoAccount = new MangoAccount(
+        accountInfos[1].publicKey,
+        MangoAccountLayout.decode(accountInfos[1].accountInfo.data),
+      );
+      const openOrdersAis = accountInfos.slice(
+        2,
+        2 + inBasketOpenOrders.length,
+      );
+      for (let i = 0; i < openOrdersAis.length; i++) {
+        const ai = openOrdersAis[i];
+        const marketIndex = mangoAccount.spotOpenOrders.findIndex((soo) =>
+          soo.equals(ai.publicKey),
+        );
+        mangoAccount.spotOpenOrdersAccounts[marketIndex] =
+          OpenOrders.fromAccountInfo(
+            ai.publicKey,
+            ai.accountInfo,
+            group.dexProgramId,
+          );
+      }
+
+      accountInfos
+        .slice(
+          2 + inBasketOpenOrders.length,
+          2 + inBasketOpenOrders.length + state.marketContexts.length,
+        )
+        .forEach((ai, i) => {
+          state.marketContexts[i].bids = new BookSide(
+            ai.publicKey,
+            state.marketContexts[i].market,
+            BookSideLayout.decode(ai.accountInfo.data),
+          );
+        });
+
+      accountInfos
+        .slice(
+          2 + inBasketOpenOrders.length + state.marketContexts.length,
+          2 + inBasketOpenOrders.length + 2 * state.marketContexts.length,
+        )
+        .forEach((ai, i) => {
+          state.marketContexts[i].lastBookUpdate = ts;
+          state.marketContexts[i].asks = new BookSide(
+            ai.publicKey,
+            state.marketContexts[i].market,
+            BookSideLayout.decode(ai.accountInfo.data),
+          );
+        });
+
+      state.mangoAccount = mangoAccount;
+      state.cache = cache;
+      state.lastMangoAccountUpdate = ts;
+    } catch (e) {
+      console.error(
+        `${new Date().getUTCDate().toString()} failed when loading state`,
+        e,
+      );
+    } finally {
+      await sleep(stateRefreshInterval);
     }
   }
 }
