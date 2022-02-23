@@ -124,3 +124,13 @@ export function makeCheckAndSetSequenceNumberInstruction(
     programId: seqEnforcerProgramId,
   });
 }
+
+export function listenersArray(
+  processes: string[][],
+  assetNames: string[]
+): string[][] {
+  processes = processes || [];
+  const inProc = processes.flat();
+  const difference = assetNames.filter(x => !inProc.includes(x));
+  return processes.concat([ difference ]);
+}
