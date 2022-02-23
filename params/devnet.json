@@ -3,6 +3,7 @@
   "mangoAccountName": "ddmm",
   "mangoAccountPubkey": "optional pubkey string if your mango account doesn't have name",
   "interval": 500,
+  "tif": 10,
   "batch": 2,
   "assets": {
     "MNGO": {

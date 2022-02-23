@@ -21,7 +21,7 @@ import {
   GroupConfig,
   IDS,
   makeCancelAllPerpOrdersInstruction,
-  makePlacePerpOrderInstruction,
+  makePlacePerpOrder2Instruction,
   MangoAccount,
   MangoAccountLayout,
   MangoCache,
@@ -29,6 +29,7 @@ import {
   MangoClient,
   MangoGroup,
   ONE_BN,
+  I64_MAX_BN,
   PerpMarket,
   PerpMarketConfig,
   sleep,
@@ -766,7 +767,7 @@ function makeMarketUpdateInstructions(
       spammerCharge * charge + 0.0005
   ) {
     console.log(`${marketContext.marketName} taking best bid spammer`);
-    const takerSell = makePlacePerpOrderInstruction(
+    const takerSell = makePlacePerpOrder2Instruction(
       mangoProgramId,
       group.publicKey,
       mangoAccount.publicKey,
@@ -779,8 +780,10 @@ function makeMarketUpdateInstructions(
       mangoAccount.getOpenOrdersKeysInBasket(),
       bestBid.priceLots,
       ONE_BN,
+      I64_MAX_BN,
       new BN(Date.now()),
       'sell',
+      new BN(20),
       'ioc',
     );
     instructions.push(takerSell);
@@ -792,7 +795,7 @@ function makeMarketUpdateInstructions(
       spammerCharge * charge + 0.0005
   ) {
     console.log(`${marketContext.marketName} taking best ask spammer`);
-    const takerBuy = makePlacePerpOrderInstruction(
+    const takerBuy = makePlacePerpOrder2Instruction(
       mangoProgramId,
       group.publicKey,
       mangoAccount.publicKey,
@@ -805,8 +808,10 @@ function makeMarketUpdateInstructions(
       mangoAccount.getOpenOrdersKeysInBasket(),
       bestAsk.priceLots,
       ONE_BN,
+      I64_MAX_BN,
       new BN(Date.now()),
       'buy',
+      new BN(20),
       'ioc',
     );
     instructions.push(takerBuy);
@@ -824,7 +829,12 @@ function makeMarketUpdateInstructions(
       new BN(20),
     );
 
-    const placeBidInstr = makePlacePerpOrderInstruction(
+    const expiryTimestamp =
+      params.tif !== undefined
+        ? new BN((Date.now() / 1000) + params.tif)
+        : new BN(0);
+
+    const placeBidInstr = makePlacePerpOrder2Instruction(
       mangoProgramId,
       group.publicKey,
       mangoAccount.publicKey,
@@ -837,12 +847,17 @@ function makeMarketUpdateInstructions(
       mangoAccount.getOpenOrdersKeysInBasket(),
       bookAdjBid,
       nativeBidSize,
+      I64_MAX_BN,
       new BN(Date.now()),
       'buy',
+      new BN(20),
       'postOnlySlide',
+      false,
+      undefined,
+      expiryTimestamp
     );
 
-    const placeAskInstr = makePlacePerpOrderInstruction(
+    const placeAskInstr = makePlacePerpOrder2Instruction(
       mangoProgramId,
       group.publicKey,
       mangoAccount.publicKey,
@@ -855,9 +870,14 @@ function makeMarketUpdateInstructions(
       mangoAccount.getOpenOrdersKeysInBasket(),
       bookAdjAsk,
       nativeAskSize,
+      I64_MAX_BN,
       new BN(Date.now()),
       'sell',
+      new BN(20),
       'postOnlySlide',
+      false,
+      undefined,
+      expiryTimestamp
     );
     instructions.push(cancelAllInstr);
     const posAsTradeSizes = basePos / size;
