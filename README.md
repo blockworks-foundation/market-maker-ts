@@ -83,5 +83,6 @@ sudo systemctl stop mm.service
 | `bias`              | `0`         | Fixed amount to bias. Negative values bias downward. e.g. -0.0005 biases down 5bps |
 | `requoteThresh`     | `0`         | How much new bid/ask price must change to requote; e.g. 0.0002 implies 2bps       |
 | `ftxSize`           | `100000`    | How much to look up spread on centralized exchange                                |
+| `tif`               | N/A         | Time in force in seconds for maker orders                                         |
 
 
