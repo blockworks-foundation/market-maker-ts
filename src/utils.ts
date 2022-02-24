@@ -23,7 +23,7 @@ export async function loadMangoAccountWithName(
     payer.publicKey,
     true,
   );
-  const delegateAccounts = await client.getMangoAccountsForOwner(
+  const delegateAccounts = await client.getMangoAccountsForDelegate(
     mangoGroup,
     payer.publicKey,
     true,
@@ -115,10 +115,10 @@ export function makeCheckAndSetSequenceNumberInstruction(
 
 export function listenersArray(
   processes: string[][],
-  assetNames: string[]
+  assetNames: string[],
 ): string[][] {
   processes = processes || [];
   const inProc = processes.flat();
-  const difference = assetNames.filter(x => !inProc.includes(x));
-  return processes.concat([ difference ]);
+  const difference = assetNames.filter((x) => !inProc.includes(x));
+  return processes.concat([difference]);
 }
