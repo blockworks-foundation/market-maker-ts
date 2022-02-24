@@ -9,24 +9,6 @@ import {
   MangoClient,
   MangoGroup,
 } from '@blockworks-foundation/mango-client';
-import { findProgramAddressSync } from '@project-serum/anchor/dist/cjs/utils/pubkey';
-import {
-  blob,
-  Blob,
-  greedy,
-  Layout,
-  nu64,
-  seq,
-  struct,
-  Structure,
-  u16,
-  u32,
-  u8,
-  UInt,
-  union,
-  Union,
-} from 'buffer-layout';
-import fs, { readFileSync } from 'fs';
 import { createHash } from 'crypto';
 import { BN } from 'bn.js';
 
@@ -41,6 +23,12 @@ export async function loadMangoAccountWithName(
     payer.publicKey,
     true,
   );
+  const delegateAccounts = await client.getMangoAccountsForOwner(
+    mangoGroup,
+    payer.publicKey,
+    true,
+  );
+  ownerAccounts.push(...delegateAccounts);
 
   for (const ownerAccount of ownerAccounts) {
     if (mangoAccountName === ownerAccount.name) {
