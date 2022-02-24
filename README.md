@@ -84,5 +84,4 @@ sudo systemctl stop mm.service
 | `requoteThresh`     | `0`         | How much new bid/ask price must change to requote; e.g. 0.0002 implies 2bps       |
 | `ftxSize`           | `100000`    | How much to look up spread on centralized exchange                                |
 | `tif`               | N/A         | Time in force in seconds for maker orders                                         |
-
-
+| `processes`         | []          | List of lists of assets specifying MD streams to put in separate processes (e.g. in params/devnet\_multiproc.json) |

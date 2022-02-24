@@ -9,6 +9,7 @@ import {
 } from '@solana/web3.js';
 import fs from 'fs';
 import os from 'os';
+import child_process from 'child_process';
 import { BN } from 'bn.js';
 import {
   BookSide,
@@ -43,12 +44,11 @@ import {
   makeCheckAndSetSequenceNumberInstruction,
   makeInitSequenceInstruction,
   seqEnforcerProgramId,
+  listenersArray,
 } from './utils';
 import {
-  normalizeBookChanges,
-  normalizeTrades,
   OrderBook,
-  streamNormalized,
+  BookChange,
 } from 'tardis-dev';
 import { findProgramAddressSync } from '@project-serum/anchor/dist/cjs/utils/pubkey';
 
@@ -108,6 +108,12 @@ type MarketContext = {
   sentBidPrice: number;
   sentAskPrice: number;
   lastOrderUpdate: number;
+};
+type ListenerMessage = {
+  bookUpdate: BookChange;
+  nativeExchange: string;
+  nativeMarket: string;
+  nativeTimestamp: number;
 };
 
 /**
@@ -191,77 +197,6 @@ async function loadAccountAndMarketState(
     lastMangoAccountUpdate: ts,
     marketContexts,
   };
-}
-
-/**
- * Long running service that keeps FTX perp books updated via websocket using Tardis
- */
-async function listenFtxBooks(marketContexts: MarketContext[]) {
-  const symbolToContext = Object.fromEntries(
-    marketContexts.map((mc) => [mc.marketName, mc]),
-  );
-
-  const messages = streamNormalized(
-    {
-      exchange: 'ftx',
-      symbols: marketContexts.map((mc) => mc.marketName),
-    },
-    normalizeTrades,
-    normalizeBookChanges,
-  );
-
-  for await (const msg of messages) {
-    if (msg.type === 'book_change') {
-      const mc = symbolToContext[msg.symbol];
-      mc.books.ftx.book.update(msg);
-      mc.books.ftx.updateTime = msg.timestamp.getTime() / 1000;
-
-      // TODO update if agg bid has moved significantly
-    }
-  }
-}
-async function listenBinanceBooks(marketContexts: MarketContext[]) {
-  const binanceList = [
-    'BTCUSDT',
-    'ETHUSDT',
-    'SOLUSDT',
-    'RAYUSDT',
-    'SRMUSDT',
-    'BNBUSDT',
-    'AVAXUSDT',
-    'LUNAUSDT',
-    'ADAUSDT',
-  ];
-
-  const binanceMarketContexts = marketContexts.filter((mc) =>
-    binanceList.includes(`${mc.marketName.split('-')[0]}USDT`),
-  );
-  const symbolToContext = Object.fromEntries(
-    binanceMarketContexts.map((mc) => [
-      `${mc.marketName.split('-')[0]}USDT`,
-      mc,
-    ]),
-  );
-  const messages = streamNormalized(
-    {
-      exchange: 'binance-futures',
-      symbols: binanceMarketContexts.map(
-        (mc) => `${mc.marketName.split('-')[0]}USDT`,
-      ),
-    },
-    normalizeTrades,
-    normalizeBookChanges,
-  );
-
-  for await (const msg of messages) {
-    if (msg.type === 'book_change') {
-      const mc = symbolToContext[msg.symbol];
-      mc.books.binance.book.update(msg);
-      mc.books.binance.updateTime = msg.timestamp.getTime() / 1000;
-
-      // Determine if you need to update
-    }
-  }
 }
 
 async function initSeqEnfAccounts(
@@ -376,8 +311,17 @@ async function fullMarketMaker() {
     });
   }
   initSeqEnfAccounts(client, marketContexts);
-  listenFtxBooks(marketContexts);
-  listenBinanceBooks(marketContexts);
+  const symbolToContext = Object.fromEntries(
+    marketContexts.map((mc) => [mc.marketName, mc]),
+  );
+  listenersArray(params.processes, Object.keys(params.assets)).map((assetArray) => {
+    const listener = child_process.fork(require.resolve('./listen'), [ assetArray.map((a) => `${a}-PERP`).join(',') ]);
+    listener.on('message', function processListenerMessage(m: ListenerMessage) {
+      symbolToContext[m.nativeMarket].books[m.nativeExchange].book.update(m.bookUpdate);
+      symbolToContext[m.nativeMarket].books[m.nativeExchange].updateTime = m.nativeTimestamp;
+    });
+  })
+
 
   const state = await loadAccountAndMarketState(
     connection,

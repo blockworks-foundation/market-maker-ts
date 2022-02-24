@@ -1,0 +1,84 @@
+{
+  "group": "devnet.2",
+  "mangoAccountName": "ddmm",
+  "mangoAccountPubkey": "optional pubkey string if your mango account doesn't have name",
+  "interval": 500,
+  "batch": 2,
+  "processes": [
+    [ "BTC", "ETH", "SOL" ]
+  ],
+  "assets": {
+    "MNGO": {
+      "perp": {
+        "sizePerc": 0.01,
+        "leanCoeff": 0.0010,
+        "bias": 0.0,
+        "requoteThresh": 0.0002,
+        "takeSpammers": true,
+        "spammerCharge": 2,
+        "ftxSize": 10000
+      }
+    },
+    "BTC": {
+      "perp": {
+        "sizePerc": 0.05,
+        "leanCoeff": 0.00025,
+        "bias": 0.0,
+        "requoteThresh": 0.0002,
+        "takeSpammers": true,
+        "spammerCharge": 2
+      }
+    },
+    "ETH": {
+      "perp": {
+        "sizePerc": 0.05,
+        "leanCoeff": 0.000375,
+        "bias": 0.0,
+        "requoteThresh": 0.0002,
+        "takeSpammers": true,
+        "spammerCharge": 2
+      }
+    },
+
+    "SOL": {
+      "perp": {
+        "sizePerc": 0.05,
+        "leanCoeff": 0.0005,
+        "bias": 0.0,
+        "requoteThresh": 0.0002,
+        "takeSpammers": true,
+        "spammerCharge": 2
+      }
+    },
+    "ADA": {
+      "perp": {
+        "sizePerc": 0.03,
+        "leanCoeff": 0.0005,
+        "bias": 0.0,
+        "requoteThresh": 0.0002,
+        "takeSpammers": true,
+        "spammerCharge": 2
+      }
+    },
+    "AVAX": {
+      "perp": {
+        "sizePerc": 0.03,
+        "leanCoeff": 0.0005,
+        "bias": 0.0,
+        "requoteThresh": 0.0002,
+        "takeSpammers": true,
+        "spammerCharge": 2
+      }
+    },
+    "LUNA": {
+      "perp": {
+        "sizePerc": 0.03,
+        "leanCoeff": 0.0005,
+        "bias": 0.0,
+        "requoteThresh": 0.0002,
+        "takeSpammers": true,
+        "spammerCharge": 2
+      }
+    }
+  }
+}
