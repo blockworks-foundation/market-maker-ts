@@ -35,7 +35,7 @@ cd /etc/systemd/system
 sudo nano mm.service
 
 ## Set the systemd service file like this and replace the *** lines with your own
-\[Service\]
+[Service]
 ***ExecStart=/home/dd/blockworks-foundation/market-maker-ts/run.sh
 ***WorkingDirectory=/home/dd/blockworks-foundation/market-maker-ts/
 Restart=always
