@@ -346,14 +346,18 @@ async function fullMarketMaker() {
       mangoAccount = state.mangoAccount;
 
       // Calculate portfolio level values
-      let pfQuoteValue = 0;
+      let pfQuoteValue: number | undefined = 0;
       for (const mc of marketContexts) {
         const pos = mangoAccount.getPerpPositionUi(mc.marketIndex, mc.market);
         const mid = mc.ftxMid; // TODO combine with other book
         if (mid) {
           pfQuoteValue += pos * mid;
+        } else {
+          pfQuoteValue = undefined;
+          break;
         }
       }
+      if (pfQuoteValue === undefined) continue; // don't proceed if we don't have pfQuoteValue yet
       let j = 0;
       let tx = new Transaction();
       for (let i = 0; i < marketContexts.length; i++) {
