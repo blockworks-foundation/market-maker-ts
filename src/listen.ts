@@ -37,6 +37,7 @@ class TardisBook extends OrderBook {
 
 type MultiBook = {
   marketName: string;
+  ftxMid: number | undefined;
   books: {
     ftx: { book: TardisBook; updateTime: number; };
     binance: { book: TardisBook, updateTime: number; };
@@ -73,13 +74,12 @@ let equity: number = 0;
 process.on('message', (m: EquityMessage) => {
   equity = m.equity;
 });
-let ftxMid: number = 0;
 
 async function listenFtxBooks(books: MultiBook[]) {
   if (process.send === undefined) throw new Error('process.send is undefined');
   const marketNames = books.map((book) => book.marketName);
   const marketNameToBook = Object.fromEntries(
-    books.map((book) => [book.marketName, book.books]),
+    books.map((book) => [book.marketName, book]),
   );
 
   const messages = streamNormalized(
@@ -94,29 +94,29 @@ async function listenFtxBooks(books: MultiBook[]) {
   for await (const msg of messages) {
     if (msg.type === 'book_change') {
       const marketName = msg.symbol;
-      const book = marketNameToBook[marketName].ftx;
-      book.book.update(msg);
-      book.updateTime = msg.timestamp.getTime() / 1000;
+      const mb = marketNameToBook[marketName];
+      mb.books.ftx.book.update(msg);
+      mb.ftxMid = mb.books.ftx.book.getMid();
+      mb.books.ftx.updateTime = msg.timestamp.getTime() / 1000;
 
       const assetParams = params.assets[marketName.split('-')[0]].perp;
       const ftxSize = assetParams.ftxSize;
       const sizePerc = assetParams.sizePerc;
       const quoteSize = equity * sizePerc;
       const aggBid = listMin(
-        Object.values(marketNameToBook[marketName]).map(({ book, updateTime }) =>
+        Object.values(marketNameToBook[marketName].books).map(({ book, updateTime }) =>
           book.getQuoteSizedBestBid(ftxSize || quoteSize),
         ),
       );
       const aggAsk = listMax(
-        Object.values(marketNameToBook[marketName]).map(({ book, updateTime }) =>
+        Object.values(marketNameToBook[marketName].books).map(({ book, updateTime }) =>
           book.getQuoteSizedBestAsk(ftxSize || quoteSize),
         ),
       );
-      ftxMid = book.book.getMid() || 0;
       process.send({ marketName: marketName,
                      aggBid:     aggBid,
                      aggAsk:     aggAsk,
-                     ftxMid:     ftxMid });
+                     ftxMid:     mb.ftxMid });
     }
   }
 
@@ -143,7 +143,7 @@ async function listenBinanceBooks(books: MultiBook[]) {
     binanceList.includes(systemMarketToNativeMarket(mn)),
   );
   const marketNameToBook = Object.fromEntries(
-    books.map((book) => [book.marketName, book.books]),
+    books.map((book) => [book.marketName, book]),
   );
   const nativeMarketMap = Object.fromEntries(marketNames.map((mn) => [
     systemMarketToNativeMarket(mn),
@@ -162,28 +162,28 @@ async function listenBinanceBooks(books: MultiBook[]) {
   for await (const msg of messages) {
     if (msg.type === 'book_change') {
       const marketName = nativeMarketMap[msg.symbol];
-      const book = marketNameToBook[marketName].binance;
-      book.book.update(msg);
-      book.updateTime = msg.timestamp.getTime() / 1000;
+      const mb = marketNameToBook[marketName];
+      mb.books.binance.book.update(msg);
+      mb.books.binance.updateTime = msg.timestamp.getTime() / 1000;
 
       const assetParams = params.assets[marketName.split('-')[0]].perp;
       const ftxSize = assetParams.ftxSize;
       const sizePerc = assetParams.sizePerc;
       const quoteSize = equity * sizePerc;
       const aggBid = listMin(
-        Object.values(marketNameToBook[marketName]).map(({ book, updateTime }) =>
+        Object.values(marketNameToBook[marketName].books).map(({ book, updateTime }) =>
           book.getQuoteSizedBestBid(ftxSize || quoteSize),
         ),
       );
       const aggAsk = listMax(
-        Object.values(marketNameToBook[marketName]).map(({ book, updateTime }) =>
+        Object.values(marketNameToBook[marketName].books).map(({ book, updateTime }) =>
           book.getQuoteSizedBestAsk(ftxSize || quoteSize),
         ),
       );
       process.send({ marketName: marketName,
                      aggBid:     aggBid,
                      aggAsk:     aggAsk,
-                     ftxMid:     ftxMid });
+                     ftxMid:     mb.ftxMid });
     }
   }
 }
@@ -192,6 +192,7 @@ const marketNames = process.argv[2].split(',');
 const books: MultiBook[] = marketNames.map((mn) => {
     return {
       marketName: mn,
+      ftxMid: 0,
       books: {
         ftx: { book: new TardisBook(), updateTime: 0 },
         binance: { book: new TardisBook(), updateTime: 0 },
