@@ -35,7 +35,6 @@ cd /etc/systemd/system
 sudo nano mm.service
 
 ## Set the systemd service file like this and replace the *** lines with your own
-[Service]
 ***ExecStart=/home/dd/blockworks-foundation/market-maker-ts/run.sh
 ***WorkingDirectory=/home/dd/blockworks-foundation/market-maker-ts/
 Restart=always
@@ -78,9 +77,9 @@ sudo systemctl stop mm.service
 | `mangoAccountName`  | N/A         | The MangoAccount name you input when initializing the MangoAccount via UI         |
 | `mangoAccountPubkey` | N/A         | If no MangoAccount name, just pass in the pubkey                                  |
 | `assets`            | N/A         | Mapping of symbols to trade and their specific params                             |
-| `size_perc`         | `0.1`       | The size of each order as a percentage of equity                                  |
+| `sizePerc`          | `0.1`       | The size of each order as a percentage of equity                                  |
 | `charge`            | `0.0010`    | How much to increase quote width from centralized exchange                        |
-| `lean_coeff`        | `0.0005`    | How much to move the quotes per unit size of inventory                            |
+| `leanCoeff`         | `0.0005`    | How much to move the quotes per unit size of inventory                            |
 | `bias`              | `0`         | Fixed amount to bias. Negative values bias downward. e.g. -0.0005 biases down 5bps |
 | `requoteThresh`     | `0`         | How much new bid/ask price must change to requote; e.g. 0.0002 implies 2bps       |
 | `ftxSize`           | `100000`    | How much to look up spread on centralized exchange                                |
