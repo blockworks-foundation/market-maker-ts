@@ -46,10 +46,6 @@ import {
   seqEnforcerProgramId,
   listenersArray,
 } from './utils';
-import {
-  OrderBook,
-  BookChange,
-} from 'tardis-dev';
 import { findProgramAddressSync } from '@project-serum/anchor/dist/cjs/utils/pubkey';
 
 const paramsFileName = process.env.PARAMS || 'default.json';
@@ -97,10 +93,9 @@ type MarketContext = {
   asks: BookSide;
   lastBookUpdate: number;
 
-  books: {
-    ftx: { book: TardisBook; updateTime: number };
-    binance: { book: TardisBook; updateTime: number };
-  };
+  aggBid: number | undefined;
+  aggAsk: number | undefined;
+  ftxMid: number | undefined;
 
   sequenceAccount: PublicKey;
   sequenceAccountBump: number;
@@ -110,10 +105,10 @@ type MarketContext = {
   lastOrderUpdate: number;
 };
 type ListenerMessage = {
-  bookUpdate: BookChange;
-  nativeExchange: string;
-  nativeMarket: string;
-  nativeTimestamp: number;
+  marketName: string;
+  aggBid: number;
+  aggAsk: number;
+  ftxMid: number;
 };
 
 /**
@@ -298,10 +293,9 @@ async function fullMarketMaker() {
       bids: await perpMarket.loadBids(connection),
       asks: await perpMarket.loadAsks(connection),
       lastBookUpdate: 0,
-      books: {
-        ftx: { book: new TardisBook(), updateTime: 0 },
-        binance: { book: new TardisBook(), updateTime: 0 },
-      },
+      aggBid: undefined,
+      aggAsk: undefined,
+      ftxMid: undefined,
 
       sequenceAccount,
       sequenceAccountBump,
@@ -314,12 +308,14 @@ async function fullMarketMaker() {
   const symbolToContext = Object.fromEntries(
     marketContexts.map((mc) => [mc.marketName, mc]),
   );
-  listenersArray(params.processes, Object.keys(params.assets)).map((assetArray) => {
+  const mdListeners: child_process.ChildProcess[] = listenersArray(params.processes, Object.keys(params.assets)).map((assetArray) => {
     const listener = child_process.fork(require.resolve('./listen'), [ assetArray.map((a) => `${a}-PERP`).join(',') ]);
-    listener.on('message', function processListenerMessage(m: ListenerMessage) {
-      symbolToContext[m.nativeMarket].books[m.nativeExchange].book.update(m.bookUpdate);
-      symbolToContext[m.nativeMarket].books[m.nativeExchange].updateTime = m.nativeTimestamp;
+    listener.on('message', (m: ListenerMessage) => {
+      symbolToContext[m.marketName].aggBid = m.aggBid;
+      symbolToContext[m.marketName].aggAsk = m.aggAsk;
+      symbolToContext[m.marketName].ftxMid = m.ftxMid;
     });
+    return listener;
   })
 
 
@@ -336,6 +332,7 @@ async function fullMarketMaker() {
     mangoGroup,
     state,
     stateRefreshInterval,
+    mdListeners
   );
 
   process.on('SIGINT', function () {
@@ -349,14 +346,18 @@ async function fullMarketMaker() {
       mangoAccount = state.mangoAccount;
 
       // Calculate portfolio level values
-      let pfQuoteValue = 0;
+      let pfQuoteValue: number | undefined = 0;
       for (const mc of marketContexts) {
         const pos = mangoAccount.getPerpPositionUi(mc.marketIndex, mc.market);
-        const mid = mc.books.ftx.book.getMid(); // TODO combine with other book
+        const mid = mc.ftxMid; // TODO combine with other book
         if (mid) {
           pfQuoteValue += pos * mid;
+        } else {
+          pfQuoteValue = undefined;
+          break;
         }
       }
+      if (pfQuoteValue === undefined) continue; // don't proceed if we don't have pfQuoteValue yet
       let j = 0;
       let tx = new Transaction();
       for (let i = 0; i < marketContexts.length; i++) {
@@ -402,6 +403,7 @@ async function listenAccountAndMarketState(
   group: MangoGroup,
   state: State,
   stateRefreshInterval: number,
+  mdListeners: child_process.ChildProcess[]
 ) {
   while (control.isRunning) {
     try {
@@ -480,6 +482,9 @@ async function listenAccountAndMarketState(
       state.mangoAccount = mangoAccount;
       state.cache = cache;
       state.lastMangoAccountUpdate = ts;
+
+      const equity = mangoAccount.computeValue(group, cache).toNumber();
+      mdListeners.map((mdListener) => mdListener.send({ equity: equity }));
     } catch (e) {
       console.error(
         `${new Date().getUTCDate().toString()} failed when loading state`,
@@ -554,47 +559,6 @@ async function sendDupTxs(
   await Promise.all(transactions);
 }
 
-class TardisBook extends OrderBook {
-  getQuoteSizedBestBid(quoteSize: number): number | undefined {
-    let rem = quoteSize;
-    for (const bid of this.bids()) {
-      rem -= bid.amount * bid.price;
-      if (rem <= 0) {
-        return bid.price;
-      }
-    }
-    return undefined;
-  }
-  getQuoteSizedBestAsk(quoteSize: number): number | undefined {
-    let rem = quoteSize;
-    for (const ask of this.asks()) {
-      rem -= ask.amount * ask.price;
-      if (rem <= 0) {
-        return ask.price;
-      }
-    }
-    return undefined;
-  }
-  getMid(): number | undefined {
-    const b = this.bestBid();
-    const a = this.bestAsk();
-    return a && b ? (a.price + b.price) / 2 : undefined;
-  }
-}
-
-function listMin(list: (number | undefined)[]): number | undefined {
-  list = list.filter((e) => e !== undefined);
-  if (list.length === 0) return undefined;
-  // @ts-ignore
-  return Math.min(...list);
-}
-function listMax(list: (number | undefined)[]): number | undefined {
-  list = list.filter((e) => e !== undefined);
-  if (list.length === 0) return undefined;
-  // @ts-ignore
-  return Math.max(...list);
-}
-
 function makeMarketUpdateInstructions(
   group: MangoGroup,
   cache: MangoCache,
@@ -610,16 +574,8 @@ function makeMarketUpdateInstructions(
   const equity = mangoAccount.computeValue(group, cache).toNumber();
   const sizePerc = marketContext.params.sizePerc;
   const quoteSize = equity * sizePerc;
-  const aggBid = listMin(
-    Object.values(marketContext.books).map(({ book, updateTime }) =>
-      book.getQuoteSizedBestBid(marketContext.params.ftxSize || quoteSize),
-    ),
-  );
-  const aggAsk = listMax(
-    Object.values(marketContext.books).map(({ book, updateTime }) =>
-      book.getQuoteSizedBestAsk(marketContext.params.ftxSize || quoteSize),
-    ),
-  );
+  const aggBid = marketContext.aggBid;
+  const aggAsk = marketContext.aggAsk;
   if (aggBid === undefined || aggAsk === undefined) {
     // TODO deal with this better; probably cancel all if there are any orders open
     console.log(`${marketContext.marketName} No Agg Book`);
