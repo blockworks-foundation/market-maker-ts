@@ -644,7 +644,8 @@ function makeMarketUpdateInstructions(
       Math.abs(marketContext.sentBidPrice / bookAdjBid.toNumber() - 1) >
         requoteThresh ||
       Math.abs(marketContext.sentAskPrice / bookAdjAsk.toNumber() - 1) >
-        requoteThresh;
+        requoteThresh ||
+      (params.tif !== undefined && marketContext.lastOrderUpdate + params.tif < getUnixTs());
   }
 
   // Start building the transaction
