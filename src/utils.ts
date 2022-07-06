@@ -58,7 +58,7 @@ export async function loadMangoAccountWithPubkey(
   return mangoAccount;
 }
 export const seqEnforcerProgramIds = {
-  devnet: undefined,
+  devnet: new PublicKey('FBngRHN4s5cmHagqy3Zd6xcK3zPJBeX5DixtHFbBhyCn'),
   testnet: new PublicKey('FThcgpaJM8WiEbK5rw3i31Ptb8Hm4rQ27TrhfzeR1uUy'),
   mainnet: new PublicKey('GDDMwNyyx8uB6zrqwBFHjLLG3TBYk2F8Az4yrQC5RzMp'),
 };
