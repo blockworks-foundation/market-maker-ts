@@ -2,6 +2,7 @@ import {
   Account,
   Commitment,
   Connection,
+  Keypair,
   PublicKey,
   Transaction,
   TransactionInstruction,
@@ -35,6 +36,7 @@ import {
   PerpMarketConfig,
   sleep,
   zeroKey,
+  Payer,
 } from '@blockworks-foundation/mango-client';
 import { OpenOrders } from '@project-serum/serum';
 import path from 'path';
@@ -43,7 +45,7 @@ import {
   loadMangoAccountWithPubkey,
   makeCheckAndSetSequenceNumberInstruction,
   makeInitSequenceInstruction,
-  seqEnforcerProgramId,
+  seqEnforcerProgramIds,
   listenersArray,
 } from './utils';
 import { findProgramAddressSync } from '@project-serum/anchor/dist/cjs/utils/pubkey';
@@ -56,12 +58,14 @@ const params = JSON.parse(
   ),
 );
 
-const payer = new Account(
+const payer = Keypair.fromSecretKey(
+  Uint8Array.from(
   JSON.parse(
-    fs.readFileSync(
-      process.env.KEYPAIR || os.homedir() + '/.config/solana/id.json',
+    process.env.KEYPAIR || fs.readFileSync(
+      process.env.KEYPAIR_FILE || os.homedir() + '/.config/solana/id.json',
       'utf-8',
     ),
+  ),
   ),
 );
 
@@ -205,6 +209,7 @@ async function initSeqEnfAccounts(
       payer.publicKey,
       mc.sequenceAccountBump,
       mc.marketName,
+      cluster,
     ),
   );
   const seqAccTx = new Transaction();
@@ -275,7 +280,7 @@ async function fullMarketMaker() {
 
     const [sequenceAccount, sequenceAccountBump] = findProgramAddressSync(
       [new Buffer(perpMarketConfig.name, 'utf-8'), payer.publicKey.toBytes()],
-      seqEnforcerProgramId,
+      seqEnforcerProgramIds[cluster],
     );
 
     const perpMarket = perpMarkets.find((pm) =>
@@ -374,7 +379,7 @@ async function fullMarketMaker() {
           j++;
           if (j === params.batch) {
             // sendDupTxs(client, tx, [], 10);
-            client.sendTransaction(tx, payer, [], null);
+            client.sendTransaction(tx, payer, []);
             tx = new Transaction();
             j = 0;
           }
@@ -537,7 +542,7 @@ function listenState(
 async function sendDupTxs(
   client: MangoClient,
   transaction: Transaction,
-  signers: Account[],
+  signers: Keypair[],
   n: number,
 ) {
   await client.signTransaction({
@@ -653,6 +658,7 @@ function makeMarketUpdateInstructions(
       marketContext.sequenceAccount,
       payer.publicKey,
       Math.round(getUnixTs() * 1000),
+      cluster,
     ),
   ];
 
@@ -815,7 +821,7 @@ function makeMarketUpdateInstructions(
 
 async function onExit(
   client: MangoClient,
-  payer: Account,
+  payer: Payer,
   group: MangoGroup,
   mangoAccount: MangoAccount,
   marketContexts: MarketContext[],
@@ -833,7 +839,7 @@ async function onExit(
       mangoProgramId,
       group.publicKey,
       mangoAccount.publicKey,
-      payer.publicKey,
+      payer.publicKey!,
       mc.market.publicKey,
       mc.market.bids,
       mc.market.asks,

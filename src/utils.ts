@@ -8,6 +8,7 @@ import {
   MangoAccount,
   MangoClient,
   MangoGroup,
+  Payer,
 } from '@blockworks-foundation/mango-client';
 import { createHash } from 'crypto';
 import { BN } from 'bn.js';
@@ -15,17 +16,17 @@ import { BN } from 'bn.js';
 export async function loadMangoAccountWithName(
   client: MangoClient,
   mangoGroup: MangoGroup,
-  payer: Account,
+  payer: Payer,
   mangoAccountName: string,
 ): Promise<MangoAccount> {
   const ownerAccounts = await client.getMangoAccountsForOwner(
     mangoGroup,
-    payer.publicKey,
+    payer.publicKey!,
     true,
   );
   const delegateAccounts = await client.getMangoAccountsForDelegate(
     mangoGroup,
-    payer.publicKey,
+    payer.publicKey!,
     true,
   );
   ownerAccounts.push(...delegateAccounts);
@@ -41,7 +42,7 @@ export async function loadMangoAccountWithName(
 export async function loadMangoAccountWithPubkey(
   client: MangoClient,
   mangoGroup: MangoGroup,
-  payer: Account,
+  payer: Payer,
   mangoAccountPk: PublicKey,
 ): Promise<MangoAccount> {
   const mangoAccount = await client.getMangoAccount(
@@ -49,22 +50,25 @@ export async function loadMangoAccountWithPubkey(
     mangoGroup.dexProgramId,
   );
 
-  if (!mangoAccount.owner.equals(payer.publicKey)) {
+  if (!mangoAccount.owner.equals(payer.publicKey!)) {
     throw new Error(
-      `Invalid MangoAccount owner: ${mangoAccount.owner.toString()}; expected: ${payer.publicKey.toString()}`,
+      `Invalid MangoAccount owner: ${mangoAccount.owner.toString()}; expected: ${payer.publicKey!.toString()}`,
     );
   }
   return mangoAccount;
 }
-export const seqEnforcerProgramId = new PublicKey(
-  'GDDMwNyyx8uB6zrqwBFHjLLG3TBYk2F8Az4yrQC5RzMp',
-);
+export const seqEnforcerProgramIds = {
+  devnet: undefined,
+  testnet: new PublicKey('FThcgpaJM8WiEbK5rw3i31Ptb8Hm4rQ27TrhfzeR1uUy'),
+  mainnet: new PublicKey('GDDMwNyyx8uB6zrqwBFHjLLG3TBYk2F8Az4yrQC5RzMp'),
+};
 
 export function makeInitSequenceInstruction(
   sequenceAccount: PublicKey,
   ownerPk: PublicKey,
   bump: number,
   sym: string,
+  cluster: string,
 ): TransactionInstruction {
   const keys = [
     { isSigner: false, isWritable: true, pubkey: sequenceAccount },
@@ -86,7 +90,7 @@ export function makeInitSequenceInstruction(
   return new TransactionInstruction({
     keys,
     data,
-    programId: seqEnforcerProgramId,
+    programId: seqEnforcerProgramIds[cluster],
   });
 }
 
@@ -94,6 +98,7 @@ export function makeCheckAndSetSequenceNumberInstruction(
   sequenceAccount: PublicKey,
   ownerPk: PublicKey,
   seqNum: number,
+  cluster,
 ): TransactionInstruction {
   const keys = [
     { isSigner: false, isWritable: true, pubkey: sequenceAccount },
@@ -109,7 +114,7 @@ export function makeCheckAndSetSequenceNumberInstruction(
   return new TransactionInstruction({
     keys,
     data,
-    programId: seqEnforcerProgramId,
+    programId: seqEnforcerProgramIds[cluster],
   });
 }
 
