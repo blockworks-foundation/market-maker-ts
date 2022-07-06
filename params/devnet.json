@@ -17,16 +17,6 @@
         "ftxSize": 10000
       }
     },
-    "BTC": {
-      "perp": {
-        "sizePerc": 0.05,
-        "leanCoeff": 0.00025,
-        "bias": 0.0,
-        "requoteThresh": 0.0002,
-        "takeSpammers": true,
-        "spammerCharge": 2
-      }
-    },
     "ETH": {
       "perp": {
         "sizePerc": 0.05,
@@ -37,7 +27,6 @@
         "spammerCharge": 2
       }
     },
-
     "SOL": {
       "perp": {
         "sizePerc": 0.05,
@@ -68,7 +57,7 @@
         "spammerCharge": 2
       }
     },
-    "LUNA": {
+    "FTT": {
       "perp": {
         "sizePerc": 0.03,
         "leanCoeff": 0.0005,
